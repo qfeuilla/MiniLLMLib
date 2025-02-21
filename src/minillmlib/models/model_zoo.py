@@ -2,7 +2,7 @@ import os
 
 from dotenv import load_dotenv
 
-from .generator_info import GeneratorInfo
+from .generator_info import GeneratorCompletionParameters, GeneratorInfo
 
 load_dotenv()
 
@@ -60,10 +60,12 @@ for model_name, uri in [
         _format="url",
         api_url=f"https://openrouter.ai/api/v1/chat/completions",
         api_key=os.getenv("OPENROUTER_API_KEY"),
-        additional_kwargs={
-            "provider": {
-                "data_collection": "deny",
-                "sort": "throughput"
+        completion_parameters=GeneratorCompletionParameters(
+            kwargs={
+                "provider": {
+                    "data_collection": "deny",
+                    "sort": "throughput"
+                }
             }
-        }
+        )
     )
