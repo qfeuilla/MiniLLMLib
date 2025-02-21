@@ -4,6 +4,9 @@ from .generator_info import (
     GeneratorInfo,
     GeneratorCompletionParameters,
     HUGGINGFACE_ACTIVATED,
+)
+
+from .model_zoo import (
     anthropic,
     openai,
     openrouter
