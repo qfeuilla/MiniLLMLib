@@ -8,7 +8,7 @@ Author: Quentin Feuillade--Montixi
 
 ### From Source
 ```bash
-git clone https://github.com/yourusername/MiniLLMLib.git
+git clone https://github.com/qfeuilla/MiniLLMLib.git
 cd MiniLLMLib
 pip install -e .  # Install in editable mode
 ```
