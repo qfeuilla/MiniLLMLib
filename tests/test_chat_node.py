@@ -360,7 +360,7 @@ class TestChatNode(unittest.IsolatedAsyncioTestCase):
             params = NodeCompletionParameters(
                 gi=self.gi,
                 add_child=True,
-                parameters=GeneratorCompletionParameters(n=2)
+                generation_parameters=GeneratorCompletionParameters(n=2)
             )
             
             results = self.chat_node.complete(params)
@@ -459,7 +459,7 @@ class TestChatNode(unittest.IsolatedAsyncioTestCase):
             params = NodeCompletionParameters(
                 gi=self.gi,
                 add_child=True,
-                parameters=GeneratorCompletionParameters(n=2)
+                generation_parameters=GeneratorCompletionParameters(n=2)
             )
             
             results = await self.chat_node.complete_async(params)

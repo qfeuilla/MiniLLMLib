@@ -105,7 +105,7 @@ def hf_process_messages(
 @dataclass
 class NodeCompletionParameters:
     gi: GeneratorInfo
-    parameters: Optional[GeneratorCompletionParameters] = None
+    generation_parameters: Optional[GeneratorCompletionParameters] = None
     add_child: bool = False
     parse_json: bool = False
     crash_on_refusal: bool = False

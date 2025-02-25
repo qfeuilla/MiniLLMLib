@@ -415,7 +415,7 @@ class ChatNode:
             return self.complete_one(NodeCompletionParameters(gi=completion_params))
 
         gi: GeneratorInfo
-        parameters: Optional[GeneratorCompletionParameters]
+        generation_parameters: Optional[GeneratorCompletionParameters]
         add_child: bool
         parse_json: bool
         crash_on_refusal: bool
@@ -426,7 +426,7 @@ class ChatNode:
         back_off_time: float
         max_back_off: int
         crash_on_empty_response: bool
-        gi, parameters, add_child, parse_json, crash_on_refusal, merge_contiguous, retry, force_prepend, exp_back_off, back_off_time, max_back_off, crash_on_empty_response = completion_params.__dict__.values()
+        gi, generation_parameters, add_child, parse_json, crash_on_refusal, merge_contiguous, retry, force_prepend, exp_back_off, back_off_time, max_back_off, crash_on_empty_response = completion_params.__dict__.values()
 
         if gi.is_chat == False:
             raise NotImplementedError(f"Non chat completion is not supported for now")
@@ -439,12 +439,12 @@ class ChatNode:
         gi = deepcopy(gi)
 
         # NOTE (design choice): the kwargs here are added to the ones in the gi.completions_parameters, and overwrite them if they are already present
-        if parameters is not None:
+        if generation_parameters is not None:
             for k, v in gi.completion_parameters.kwargs.items():
-                if k not in parameters.kwargs:
-                    parameters.kwargs[k] = v
+                if k not in generation_parameters.kwargs:
+                    generation_parameters.kwargs[k] = v
             
-            gi.completion_parameters = parameters
+            gi.completion_parameters = generation_parameters
 
         back_off = True
         retry = max(retry + 1, 1)
@@ -539,8 +539,8 @@ class ChatNode:
         children = [
             self.complete_one(completion_params) 
             for _ in range(
-                completion_params.parameters.n 
-                if completion_params.parameters is not None 
+                completion_params.generation_parameters.n 
+                if completion_params.generation_parameters is not None 
                 else completion_params.gi.completion_parameters.n
             )
         ]
@@ -564,8 +564,8 @@ class ChatNode:
         tasks = [
             self.complete_one_async(completion_params)
             for _ in range(
-                completion_params.parameters.n 
-                if completion_params.parameters is not None 
+                completion_params.generation_parameters.n 
+                if completion_params.generation_parameters is not None 
                 else completion_params.gi.completion_parameters.n
             )
         ]
