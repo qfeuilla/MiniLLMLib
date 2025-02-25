@@ -961,5 +961,68 @@ class TestChatNode(unittest.IsolatedAsyncioTestCase):
             'Response with \\"quotes\\" and \\\\backslashes\\\\'
         )
         
+    def test_from_thread_with_multiple_paths(self):
+        # Create two temporary thread files
+        with tempfile.NamedTemporaryFile(mode='w', delete=False) as f1, \
+             tempfile.NamedTemporaryFile(mode='w', delete=False) as f2:
+            
+            # First thread
+            json.dump({
+                "required_kwargs": {"var1": "value1"},
+                "prompts": [
+                    {"role": "system", "content": "System {var1} prompt 1"},
+                    {"role": "user", "content": "User message 1"}
+                ]
+            }, f1)
+            f1.flush()  # Ensure content is written to disk
+            
+            # Second thread
+            json.dump({
+                "required_kwargs": {"var2": "value2"},
+                "prompts": [
+                    {"role": "assistant", "content": "Assistant response 1"},
+                    {"role": "user", "content": "User {var2} message 2"},
+                    {"role": "assistant", "content": "Assistant response 2"}
+                ]
+            }, f2)
+            f2.flush()  # Ensure content is written to disk
+            
+            # Test loading multiple threads
+            thread_paths = [f1.name, f2.name]
+            root = ChatNode.from_thread(thread_paths).get_root()
+            
+            # Verify the structure
+            self.assertEqual(root.role, "system")
+            self.assertEqual(root.content, "System {var1} prompt 1")
+            self.assertEqual(root.format_kwargs, {"var1": "value1", "var2": "value2"})
+            
+            child1 = root.children[0]
+            self.assertEqual(child1.role, "user")
+            self.assertEqual(child1.content, "User message 1")
+            self.assertEqual(child1.format_kwargs, {})
+            
+            child2 = child1.children[0]
+            self.assertEqual(child2.role, "assistant")
+            self.assertEqual(child2.content, "Assistant response 1")
+            self.assertEqual(child2.format_kwargs, {"var2": "value2"})
+            
+            child3 = child2.children[0]
+            self.assertEqual(child3.role, "user")
+            self.assertEqual(child3.content, "User {var2} message 2")
+            self.assertEqual(child3.format_kwargs, {"var2": "value2"})
+            
+            child4 = child3.children[0]
+            self.assertEqual(child4.role, "assistant")
+            self.assertEqual(child4.content, "Assistant response 2")
+            self.assertEqual(child4.format_kwargs, {})
+            
+            # Test with empty list
+            with self.assertRaises(ValueError):
+                ChatNode.from_thread([])
+            
+            # Clean up
+            os.unlink(f1.name)
+            os.unlink(f2.name)
+
 if __name__ == '__main__':
     unittest.main()

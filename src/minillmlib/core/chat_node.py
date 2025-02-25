@@ -633,7 +633,32 @@ class ChatNode:
             raise NotImplementedError("hf_compute_logits_average should only be called for hf format, and if HUGGINGFACE_ACTIVATED is True (transformers and torch must installed)")
     
     @classmethod
-    def from_thread(cls, path: str) -> ChatNode:
+    def from_thread(cls, 
+        path: str | List[str]
+    ) -> ChatNode:
+        """Load a thread from a JSON file or multiple JSON files.
+        
+        Args:
+            path: Path to a JSON file or list of paths to JSON files.
+                 If a list is provided, the threads will be merged in order.
+        
+        Returns:
+            The root node of the loaded thread
+        """
+        if isinstance(path, list):
+            if not path:
+                raise ValueError("Empty list of paths provided")
+            
+            # Load the first thread
+            parent = cls.from_thread(path[0])
+            
+            # Merge subsequent threads
+            for thread_path in path[1:]:
+                parent = parent.merge(cls.from_thread(thread_path))
+            
+            return parent
+        
+        # Single path logic
         data = json.load(open(path, "r"))
         if "required_kwargs" not in data:
             data["required_kwargs"] = {}
