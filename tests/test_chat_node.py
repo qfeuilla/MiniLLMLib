@@ -1,14 +1,16 @@
 """Tests for the ChatNode class."""
-import unittest
-from unittest.mock import Mock, patch
+import asyncio
 import json
 import os
 import tempfile
-import asyncio
+import unittest
+from unittest.mock import Mock, patch
 
-from minillmlib.core.chat_node import ChatNode, HUGGINGFACE_ACTIVATED, torch
-from minillmlib.models.generator_info import GeneratorInfo, GeneratorCompletionParameters
+from minillmlib.core.chat_node import HUGGINGFACE_ACTIVATED, ChatNode, torch
+from minillmlib.models.generator_info import (GeneratorCompletionParameters,
+                                              GeneratorInfo)
 from minillmlib.utils.message_utils import NodeCompletionParameters
+
 
 class TestChatNode(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
@@ -492,8 +494,8 @@ class TestChatNode(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(child._parent, _parent)
         self.assertEqual(len(_parent.children), 0)
 
-    def test_complete_with_backoff_disabled(self):
-        # Test completion with backoff disabled for JSON parsing
+    def test_complete_with_back_off_disabled(self):
+        # Test completion with back_off disabled for JSON parsing
         mock_client = Mock()
         mock_response1 = Mock()
         mock_response2 = Mock()
@@ -515,8 +517,8 @@ class TestChatNode(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(result.content, '{"key": "value"}')
             mock_sleep.assert_not_called()  # Should not sleep if the crash is due to JSON
 
-    def test_complete_with_exp_backoff(self):
-        # Test completion with exponential backoff
+    def test_complete_with_exp_back_off(self):
+        # Test completion with exponential back_off
         mock_client = Mock()
         mock_client.chat.completions.create.side_effect = [
             Exception("API Error 1"),
@@ -681,8 +683,8 @@ class TestChatNode(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ValueError):
             self.chat_node.get_messages(self.gi, merge_contiguous="invalid")
 
-    def test_complete_with_custom_backoff_time(self):
-        # Test completion with custom backoff time
+    def test_complete_with_custom_back_off_time(self):
+        # Test completion with custom back_off time
         mock_client = Mock()
         mock_client.chat.completions.create.side_effect = [
             Exception("API Error"),
@@ -695,17 +697,17 @@ class TestChatNode(unittest.IsolatedAsyncioTestCase):
                 gi=self.gi,
                 add_child=True,
                 retry=1,
-                backoff_time=10.0  # Custom backoff time
+                back_off_time=10.0  # Custom back_off time
             )
             
             result = self.chat_node.complete_one(params)
             self.assertEqual(result.content, "Success")
             
-            # Verify that sleep was called with the custom backoff time
+            # Verify that sleep was called with the custom back_off time
             mock_sleep.assert_called_once_with(10.0)
 
-    def test_complete_with_exp_backoff_and_custom_time(self):
-        # Test exponential backoff with custom base time
+    def test_complete_with_exp_back_off_and_custom_time(self):
+        # Test exponential back_off with custom base time
         mock_client = Mock()
         mock_client.chat.completions.create.side_effect = [
             Exception("API Error 1"),
@@ -720,20 +722,20 @@ class TestChatNode(unittest.IsolatedAsyncioTestCase):
                 add_child=True,
                 retry=2,
                 exp_back_off=True,
-                backoff_time=2.0  # Custom base time for exp backoff
+                back_off_time=2.0  # Custom base time for exp back_off
             )
             
             result = self.chat_node.complete_one(params)
             self.assertEqual(result.content, "Success")
             
-            # Verify exponential backoff with custom base time
+            # Verify exponential back_off with custom base time
             calls = mock_sleep.call_args_list
             self.assertEqual(len(calls), 2)
             self.assertEqual(calls[0][0][0], 2.0)  # First retry: 2.0
             self.assertEqual(calls[1][0][0], 4.0)  # Second retry: 2.0 * 2
 
-    def test_complete_with_zero_backoff_time(self):
-        # Test completion with zero backoff time
+    def test_complete_with_zero_back_off_time(self):
+        # Test completion with zero back_off time
         mock_client = Mock()
         mock_client.chat.completions.create.side_effect = [
             Exception("API Error"),
@@ -746,7 +748,7 @@ class TestChatNode(unittest.IsolatedAsyncioTestCase):
                 gi=self.gi,
                 add_child=True,
                 retry=1,
-                backoff_time=0.0  # No delay between retries
+                back_off_time=0.0  # No delay between retries
             )
             
             result = self.chat_node.complete_one(params)
@@ -759,7 +761,7 @@ class TestChatNode(unittest.IsolatedAsyncioTestCase):
         # Test different error handling behaviors
         mock_client = Mock()
         
-        # Test API error (should use backoff)
+        # Test API error (should use back_off)
         mock_client.chat.completions.create.side_effect = [
             Exception("API Error"),
             Mock(choices=[Mock(message=Mock(content="Success"))])
@@ -771,15 +773,15 @@ class TestChatNode(unittest.IsolatedAsyncioTestCase):
                 gi=self.gi,
                 add_child=True,
                 retry=1,
-                backoff_time=5.0
+                back_off_time=5.0
             )
             
             result = self.chat_node.complete_one(params)
             self.assertEqual(result.content, "Success")
-            mock_sleep.assert_called_once_with(5.0)  # Should backoff for API error
+            mock_sleep.assert_called_once_with(5.0)  # Should back_off for API error
             mock_sleep.reset_mock()
 
-            # Test JSON parsing error (should not use backoff)
+            # Test JSON parsing error (should not use back_off)
             mock_client.chat.completions.create.side_effect = [
                 Mock(choices=[Mock(message=Mock(content="invalid json"))]),
                 Mock(choices=[Mock(message=Mock(content='{"key": "value"}'))])
@@ -791,12 +793,12 @@ class TestChatNode(unittest.IsolatedAsyncioTestCase):
                 parse_json=True,
                 crash_on_refusal=True,
                 retry=1,
-                backoff_time=5.0
+                back_off_time=5.0
             )
             
             result = self.chat_node.complete_one(params)
             self.assertEqual(result.content, '{"key": "value"}')
-            mock_sleep.assert_not_called()  # Should not backoff for JSON error
+            mock_sleep.assert_not_called()  # Should not back_off for JSON error
 
     def test_complete_with_anthropic_format(self):
         # Test completion with Anthropic format
@@ -926,5 +928,38 @@ class TestChatNode(unittest.IsolatedAsyncioTestCase):
             result = self.chat_node.complete_one(NodeCompletionParameters(gi=gi_together, add_child=True))
             self.assertEqual(result.content, "Together Response")
 
+    def test_enforce_json_compatible_prompt(self):
+        # Test GeneratorInfo with enforce_json_compatible_prompt enabled
+        gi = GeneratorInfo(
+            model="test-model",
+            _format="openai",
+            api_key="test-key",
+            enforce_json_compatible_prompt=True
+        )
+        
+        # Create a chat node with content that might break JSON
+        node = ChatNode(content='Hello "world" with {special} chars!', role="user")
+        
+        # Get messages and verify they're properly escaped
+        messages = node.get_messages(gi=gi)
+        self.assertEqual(len(messages), 1)
+        self.assertEqual(messages[0]["role"], "user")
+        self.assertEqual(
+            messages[0]["content"], 
+            'Hello \\"world\\" with {special} chars!'
+        )
+        
+        # Test with multiple messages
+        child = node.add_child(ChatNode(
+            content='Response with "quotes" and \\backslashes\\', 
+            role="assistant"
+        ))
+        messages = child.get_messages(gi=gi)
+        self.assertEqual(len(messages), 2)
+        self.assertEqual(
+            messages[1]["content"],
+            'Response with \\"quotes\\" and \\\\backslashes\\\\'
+        )
+        
 if __name__ == '__main__':
     unittest.main()

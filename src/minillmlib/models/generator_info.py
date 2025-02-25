@@ -1,6 +1,6 @@
 """Generator information and model configurations for MiniLLMLib."""
-from dataclasses import dataclass, field, fields, MISSING
-from typing import Any, Dict, Optional, Tuple, List
+from dataclasses import MISSING, dataclass, field, fields
+from typing import Any, Dict, Optional, Tuple
 
 HUGGINGFACE_ACTIVATED = False
 try:
@@ -16,7 +16,7 @@ class GeneratorCompletionParameters:
     temperature: float = 0.8
     max_tokens: int = 512
     n: int = 1
-    kwargs: Dict = field(default_factory=dict)
+    kwargs: Dict[str, Any] = field(default_factory=dict)
 
     def __init__(self, **kwargs):
         """Initialize with arbitrary kwargs."""
@@ -37,7 +37,12 @@ class GeneratorCompletionParameters:
         # Set default values for unspecified fields
         for field in fields(self):
             if field.name not in field_values and field.name != 'kwargs':
-                setattr(self, field.name, field.default_factory() if field.default_factory != MISSING else field.default)
+                setattr(
+                    self, field.name, 
+                    field.default_factory() 
+                    if field.default_factory != MISSING 
+                    else field.default
+                )
         
         # Store remaining kwargs
         self.kwargs = other_kwargs
@@ -57,12 +62,13 @@ class GeneratorInfo:
     api_key: Optional[str] = None
     _format: str = "openai"
     force_merge: bool = False
+    enforce_json_compatible_prompt: bool = False
+    no_system: bool = False
+    deactivate_default_params: bool = False
     
     # Additional information
     price_table: Tuple[float, float] = (0.0, 0.0)
     is_uncensored: bool = False
-    deactivate_default_params: bool = False
-    no_system: bool = False
     translation_table: Dict[str, str] = field(default_factory=dict) # Used to translate the role titles sent to the chatbot. See pretty_messages
     
     # HuggingFace
@@ -135,7 +141,7 @@ class GeneratorInfo:
             self.api_key,
             self.is_uncensored,
             self.deactivate_default_params,
-            self.price_table
+            self.enforce_json_compatible_prompt
         ))
 
 pretty_messages = GeneratorInfo(

@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import asyncio
+from copy import deepcopy
 import json
 import os
 import time
+import warnings
 from typing import Any, Dict, List, Optional
 
 import requests
@@ -17,13 +19,12 @@ from openai.types.chat import ChatCompletion
 from together import Together
 
 from ..models.generator_info import (HUGGINGFACE_ACTIVATED,
-                                     GeneratorCompletionParameters, GeneratorInfo,
-                                     pretty_messages, torch)
+                                     GeneratorCompletionParameters,
+                                     GeneratorInfo, pretty_messages, torch)
 from ..utils.json_utils import extract_json_from_completion, to_dict
 from ..utils.message_utils import (NodeCompletionParameters, format_prompt,
                                    hf_process_messages,
                                    merge_contiguous_messages)
-import warnings
 
 warnings.filterwarnings("ignore", message=".*verification is strongly advised.*")
 
@@ -159,6 +160,15 @@ class ChatNode:
             messages=messages,
             merge_contiguous="all" if gi.force_merge else merge_contiguous,
         )
+
+        # NOTE: This makes sure that the content is a string that can be JSON decoded without issues (useful in case the LLM API url is not well coded, but it could affect the prompt so it should not be on by default)
+        if gi.enforce_json_compatible_prompt:
+            messages = [
+                {
+                    "role": message["role"],
+                    "content": json.dumps({"prompt": message["content"]})[12:-2],
+                } for message in messages
+            ]
 
         # Choose the correct formatting depending on the gi _format
         # Opt 1: Do Nothing
@@ -413,10 +423,10 @@ class ChatNode:
         retry: int
         force_prepend: Optional[str]
         exp_back_off: bool 
-        backoff_time: float
+        back_off_time: float
         max_back_off: int
         crash_on_empty_response: bool
-        gi, parameters, add_child, parse_json, crash_on_refusal, merge_contiguous, retry, force_prepend, exp_back_off, backoff_time, max_back_off, crash_on_empty_response = completion_params.__dict__.values()
+        gi, parameters, add_child, parse_json, crash_on_refusal, merge_contiguous, retry, force_prepend, exp_back_off, back_off_time, max_back_off, crash_on_empty_response = completion_params.__dict__.values()
 
         if gi.is_chat == False:
             raise NotImplementedError(f"Non chat completion is not supported for now")
@@ -424,7 +434,11 @@ class ChatNode:
         if gi._format not in ["openai", "anthropic", "url", "mistralai", "hf", "together"]:
             raise NotImplementedError(f"{gi._format} not supported for chat completion")
         
-        # NOTE (design choice): If there is kwargs in the gi.completion_parameters, they will be merged with the parameters instead of discarding them 
+        # deepcopy the gi to avoid modifying the original
+        # TODO: This might not be the best idea for local LLMs, I need to find a way to handle them properly without having to clone the weights
+        gi = deepcopy(gi)
+
+        # NOTE (design choice): the kwargs here are added to the ones in the gi.completions_parameters, and overwrite them if they are already present
         if parameters is not None:
             for k, v in gi.completion_parameters.kwargs.items():
                 if k not in parameters.kwargs:
@@ -432,7 +446,7 @@ class ChatNode:
             
             gi.completion_parameters = parameters
 
-        backoff = True
+        back_off = True
         retry = max(retry + 1, 1)
 
         complete_from = self
@@ -489,13 +503,13 @@ class ChatNode:
                     content = to_prepend + content
                 
                 if parse_json:
-                    # Prevent backoff if parsing is failing
-                    backoff = False
+                    # Prevent back_off if parsing is failing
+                    back_off = False
                     parsed_content = extract_json_from_completion(content)
 
                     if parsed_content in ['""', "{}", ''] and crash_on_refusal:
                         raise Exception(f"No JSON found in the response: {content}. The request was: {messages} and the model used was: {gi.model}")
-                    backoff = True
+                    back_off = True
                     content = parsed_content
                 child = ChatNode(content=content, role="assistant")
                 break
@@ -505,12 +519,12 @@ class ChatNode:
                 if retry <= 1:
                     raise e
                 retry -= 1
-                if backoff:
-                    time.sleep(backoff_time)
+                if back_off:
+                    time.sleep(back_off_time)
                     if exp_back_off:
-                        backoff_time = min(backoff_time * 2, max_back_off)
+                        back_off_time = min(back_off_time * 2, max_back_off)
                 else:
-                    backoff = True
+                    back_off = True
         
         if add_child:
             self.add_child(child)
@@ -649,4 +663,4 @@ class ChatNode:
 
         return parent
     
-    # TODO: Add a "from_loom" method
+    # TODO: Add a "from_loom" method to load complex graph

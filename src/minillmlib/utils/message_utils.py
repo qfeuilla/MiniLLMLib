@@ -2,7 +2,8 @@
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
-from ..models.generator_info import GeneratorCompletionParameters, GeneratorInfo
+from ..models.generator_info import (GeneratorCompletionParameters,
+                                     GeneratorInfo)
 
 
 # NOTE: This is separated because more features could be added to this like tool use
@@ -112,6 +113,6 @@ class NodeCompletionParameters:
     retry: int = 4 
     force_prepend: Optional[str] = None
     exp_back_off: bool = False
-    backoff_time: float = 5
+    back_off_time: float = 5
     max_back_off: int = 15
     crash_on_empty_response: bool = False

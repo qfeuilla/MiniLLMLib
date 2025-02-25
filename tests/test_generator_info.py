@@ -1,7 +1,10 @@
 """Tests for the GeneratorInfo class."""
 import unittest
 
-from minillmlib.models.generator_info import GeneratorInfo, GeneratorCompletionParameters, HUGGINGFACE_ACTIVATED
+from minillmlib.models.generator_info import (HUGGINGFACE_ACTIVATED,
+                                              GeneratorCompletionParameters,
+                                              GeneratorInfo)
+
 
 class TestGeneratorInfo(unittest.TestCase):
     def test_init(self):
@@ -113,6 +116,34 @@ class TestGeneratorInfo(unittest.TestCase):
         self.assertEqual(params.kwargs["complex_param"]["nested"]["list"], [1, 2, 3])
         self.assertEqual(params.kwargs["complex_param"]["nested"]["dict"], {"a": 1, "b": 2})
         self.assertEqual(params.kwargs["complex_param"]["tuple"], (1, 2, 3))
+
+    def test_generator_completion_parameters_initialization(self):
+        # Test with known parameters
+        params = GeneratorCompletionParameters(
+            temperature=0.5,
+            max_tokens=256,
+            n=2
+        )
+        self.assertEqual(params.temperature, 0.5)
+        self.assertEqual(params.max_tokens, 256)
+        self.assertEqual(params.n, 2)
+        self.assertEqual(params.kwargs, {})
+
+        # Test with unknown parameters
+        params = GeneratorCompletionParameters(
+            temperature=0.5,
+            unknown_param="value"
+        )
+        self.assertEqual(params.temperature, 0.5)
+        self.assertEqual(params.kwargs, {"unknown_param": "value"})
+        self.assertFalse(hasattr(params, "unknown_param"))
+
+        # Test default values
+        params = GeneratorCompletionParameters()
+        self.assertEqual(params.temperature, 0.8)
+        self.assertEqual(params.max_tokens, 512)
+        self.assertEqual(params.n, 1)
+        self.assertEqual(params.kwargs, {})
 
     @unittest.skipUnless(HUGGINGFACE_ACTIVATED, "HuggingFace not installed")
     def test_build_hf_model(self):
