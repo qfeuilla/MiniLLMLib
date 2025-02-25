@@ -113,6 +113,6 @@ class NodeCompletionParameters:
     retry: int = 4 
     force_prepend: Optional[str] = None
     exp_back_off: bool = False
-    back_off_time: float = 5
+    back_off_time: float = 1
     max_back_off: int = 15
     crash_on_empty_response: bool = False
