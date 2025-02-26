@@ -7,7 +7,7 @@ import os
 import time
 import warnings
 from copy import deepcopy
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import aiohttp
 import requests
@@ -283,6 +283,276 @@ class ChatNode:
     ) -> None:
         json.dump(to_dict(self.get_root()), open(path, "w+"), indent=4)
     
+    def _prepare_completion(self, 
+        completion_params: NodeCompletionParameters | GeneratorInfo,
+        use_async: bool = False
+    ) -> Tuple[GeneratorInfo, Dict[str, Any], List[Dict[str, str]], Any, Optional[ChatNode]]:
+        """
+        Prepare parameters for completion - shared code between sync and async implementations.
+        Returns: (gi, params_dict, messages, api, complete_from)
+        """
+        if isinstance(completion_params, GeneratorInfo):
+            completion_params = NodeCompletionParameters(gi=completion_params)
+            
+        # Extract parameters
+        gi = completion_params.gi
+        generation_parameters = completion_params.generation_parameters
+        force_prepend = completion_params.force_prepend
+        merge_contiguous = completion_params.merge_contiguous
+        
+        # Validation
+        if gi.is_chat == False:
+            raise NotImplementedError(f"Non chat completion is not supported for now")
+        
+        if gi._format not in ["openai", "anthropic", "url", "mistralai", "hf", "together"]:
+            raise NotImplementedError(f"{gi._format} not supported for chat completion")
+        
+        # deepcopy the gi to avoid modifying the original
+        # TODO: This might not be the best idea for local LLMs, I need to find a way to handle them properly without having to clone the weights
+        gi = deepcopy(gi)
+
+        # Apply generation parameters if provided
+        # NOTE (design choice): the kwargs here are added to the ones in the gi.completion_parameters, and overwrite them if they are already set
+        if generation_parameters is not None:
+            for k, v in gi.completion_parameters.kwargs.items():
+                if k not in generation_parameters.kwargs:
+                    generation_parameters.kwargs[k] = v
+            
+            gi.completion_parameters = generation_parameters
+
+        # Set up the complete_from node
+        complete_from = self
+        if force_prepend is not None:
+            complete_from = self.add_child(
+                ChatNode(content=force_prepend, role="assistant"), illegitimate=True
+            )
+
+        # Get messages
+        messages = complete_from.get_messages(
+            gi=gi,
+            merge_contiguous=merge_contiguous
+        )
+
+        # Get the appropriate API client
+        api = None
+        if gi.api_key is not None:
+            api = {
+                "openai": [OpenAI(api_key=gi.api_key), AsyncOpenAI(api_key=gi.api_key)][use_async],
+                "anthropic": [Anthropic(api_key=gi.api_key), AsyncAnthropic(api_key=gi.api_key)][use_async],
+                "mistralai": Mistral(api_key=gi.api_key),
+                "together": [Together(api_key=gi.api_key), AsyncTogether(api_key=gi.api_key)][use_async],
+                "url": gi.api_url,
+                "hf": None
+            }[gi._format]
+        else:
+            api = {
+                "openai": [openai_api, openai_async_api][use_async],
+                "anthropic": [anthropic_api, anthropic_async_api][use_async],
+                "mistralai": mistralai_api,
+                "together": [together_api, together_async_api][use_async],
+                "url": gi.api_url,
+                "hf": None
+            }[gi._format]
+
+        # Put all parameters in a dict to return (except the ones handled differently)
+        params_dict = {
+            "add_child": completion_params.add_child,
+            "parse_json": completion_params.parse_json,
+            "crash_on_refusal": completion_params.crash_on_refusal,
+            "crash_on_empty_response": completion_params.crash_on_empty_response,
+            "retry": max(completion_params.retry + 1, 1),
+            "exp_back_off": completion_params.exp_back_off,
+            "back_off_time": completion_params.back_off_time,
+            "max_back_off": completion_params.max_back_off,
+            "force_prepend": force_prepend
+        }
+        
+        return gi, params_dict, messages, api, complete_from
+
+    def _process_completion_result(self,
+        content: str,
+        params: Dict[str, Any],
+        messages: List[Dict[str, str]],
+        gi: GeneratorInfo,
+        retry_state: Dict[str, Any]
+    ) -> ChatNode:
+        """
+        Process the completion result - shared code between sync and async implementations.
+        Modifies retry_state to control backoff behavior.
+        """
+        force_prepend = params["force_prepend"]
+        parse_json = params["parse_json"]
+        crash_on_refusal = params["crash_on_refusal"]
+        crash_on_empty_response = params["crash_on_empty_response"]
+        add_child = params["add_child"]
+
+        if crash_on_empty_response and content.strip() == "":
+            raise Exception(f"No content returned by the model: {content}. The request was: {messages} and the model used was: {gi.model}")
+
+        to_prepend = force_prepend or ""
+        if not content.startswith(to_prepend):
+            content = to_prepend + content
+        
+        if parse_json:
+            # Prevent back_off if parsing is failing
+            retry_state["back_off"] = False
+            parsed_content = extract_json_from_completion(content)
+            if parsed_content in ['""', "{}", ''] and crash_on_refusal:
+                raise Exception(f"No JSON found in the response: {content}. The request was: {messages} and the model used was: {gi.model}")
+            # Re-enable back_off after successful parsing
+            retry_state["back_off"] = True
+            content = parsed_content
+            
+        child = ChatNode(content=content, role="assistant")
+        
+        if add_child:
+            self.add_child(child)
+            
+        return child
+
+    def complete_one(self,
+        completion_params: NodeCompletionParameters | GeneratorInfo,
+    ) -> ChatNode:
+        """
+        Synchronous version that uses the correct completion method based on the model format.
+        This is entirely synchronous and avoids any async/event loop operations.
+        """
+        # Prepare all the parameters
+        gi, params, messages, api, complete_from = self._prepare_completion(completion_params, use_async=False)
+        
+        # Get the appropriate synchronous completion method
+        complete_method = {
+            "openai": self.__chat_complete_openai,
+            "anthropic": self.__chat_complete_anthropic,
+            "mistralai": self.__chat_complete_mistralai,
+            "together": self.__chat_complete_together,
+            "url": self.__chat_complete_url,
+            "hf": self.__chat_complete_hf
+        }[gi._format]
+        
+        # Loop for retries
+        retry = params["retry"]
+        back_off_time = params["back_off_time"]
+        exp_back_off = params["exp_back_off"]
+        max_back_off = params["max_back_off"]
+        force_prepend = params["force_prepend"]
+        
+        content = ""
+        retry_state = {"back_off": True}
+        while retry:
+            try:
+                content = complete_method(gi, messages, api, force_prepend)
+                # Process and return the result
+                child = self._process_completion_result(content, params, messages, gi, retry_state)
+                return child
+            except Exception as e:
+                print(f"{Fore.RED}Error: {Fore.RESET}{e}")
+                print("AI content: ", content)
+                if retry <= 1:
+                    raise e
+                retry -= 1
+                if retry_state["back_off"]:
+                    time.sleep(back_off_time)
+                    if exp_back_off:
+                        back_off_time = min(back_off_time * 2, max_back_off)
+                else:
+                    retry_state["back_off"] = True
+        
+        # This should never happen because we always return or raise in the loop
+        raise Exception("Unexpected error in complete_one")
+
+    async def complete_one_async(self,
+        completion_params: NodeCompletionParameters | GeneratorInfo
+    ) -> ChatNode:
+        """
+        Fully asynchronous version that uses the correct async completion method.
+        """
+        # Prepare all the parameters
+        gi, params, messages, api, complete_from = self._prepare_completion(completion_params, use_async=True)
+        
+        # Check for HuggingFace - which doesn't support async
+        if gi._format == "hf":
+            raise NotImplementedError(f"Async completion is not supported for HuggingFace models. Please use the synchronous 'complete_one' method instead.")
+        
+        # Get the appropriate async completion method
+        complete_method = {
+            "openai": self.__chat_complete_openai_async,
+            "anthropic": self.__chat_complete_anthropic_async,
+            "mistralai": self.__chat_complete_mistralai_async,
+            "together": self.__chat_complete_together_async,
+            "url": self.__chat_complete_url_async
+        }[gi._format]
+        
+        # Loop for retries
+        retry = params["retry"]
+        back_off_time = params["back_off_time"]
+        exp_back_off = params["exp_back_off"]
+        max_back_off = params["max_back_off"]
+        force_prepend = params["force_prepend"]
+        
+        content = ""
+        retry_state = {"back_off": True}
+        while retry:
+            try:
+                content = await complete_method(gi, messages, api, force_prepend)
+                # Process and return the result
+                child = self._process_completion_result(content, params, messages, gi, retry_state)
+                return child
+            except Exception as e:
+                print(f"{Fore.RED}Error: {Fore.RESET}{e}")
+                print("AI content: ", content)
+                if retry <= 1:
+                    raise e
+                retry -= 1
+                if retry_state["back_off"]:
+                    await asyncio.sleep(back_off_time)
+                    if exp_back_off:
+                        back_off_time = min(back_off_time * 2, max_back_off)
+                else:
+                    retry_state["back_off"] = True
+                    
+        # This should never happen because we always return or raise in the loop
+        raise Exception("Unexpected error in complete_one_async")
+
+    def complete(self,
+        completion_params: NodeCompletionParameters | GeneratorInfo
+    ) -> ChatNode | List[ChatNode]:
+        """Synchronous version of complete."""
+        if isinstance(completion_params, GeneratorInfo):
+            return self.complete(NodeCompletionParameters(gi=completion_params))
+
+        # Generate n completions using the synchronous complete_one method
+        children = [
+            self.complete_one(completion_params) 
+            for _ in range(
+                completion_params.generation_parameters.n 
+                if completion_params.generation_parameters is not None 
+                else completion_params.gi.completion_parameters.n
+            )
+        ]
+
+        return children if len(children) > 1 else children[0]
+        
+    async def complete_async(self,
+        completion_params: NodeCompletionParameters | GeneratorInfo
+    ) -> ChatNode | List[ChatNode]:
+        """Asynchronous version of complete."""
+        if isinstance(completion_params, GeneratorInfo):
+            return await self.complete_async(NodeCompletionParameters(gi=completion_params))
+
+        # Generate n completions using the async complete_one_async method
+        tasks = [
+            self.complete_one_async(completion_params)
+            for _ in range(
+                completion_params.generation_parameters.n 
+                if completion_params.generation_parameters is not None 
+                else completion_params.gi.completion_parameters.n
+            )
+        ]
+        
+        children = await asyncio.gather(*tasks)
+        return children if len(children) > 1 else children[0]
+
     def __chat_complete_openai(self,
         gi: GeneratorInfo,
         messages: List[Dict[str, str]],
@@ -467,222 +737,6 @@ class ChatNode:
 
         return decoded
 
-    async def general_complete_one(self, 
-        completion_params: NodeCompletionParameters | GeneratorInfo,
-        use_async: bool = False
-    ) -> ChatNode:
-        if isinstance(completion_params, GeneratorInfo):
-            return await self.general_complete_one(NodeCompletionParameters(gi=completion_params), use_async=use_async)
-
-        gi: GeneratorInfo
-        generation_parameters: Optional[GeneratorCompletionParameters]
-        add_child: bool
-        parse_json: bool
-        crash_on_refusal: bool
-        merge_contiguous: bool
-        retry: int
-        force_prepend: Optional[str]
-        exp_back_off: bool 
-        back_off_time: float
-        max_back_off: int
-        crash_on_empty_response: bool
-        gi, generation_parameters, add_child, parse_json, crash_on_refusal, merge_contiguous, retry, force_prepend, exp_back_off, back_off_time, max_back_off, crash_on_empty_response = completion_params.__dict__.values()
-
-        if gi.is_chat == False:
-            raise NotImplementedError(f"Non chat completion is not supported for now")
-        
-        if gi._format not in ["openai", "anthropic", "url", "mistralai", "hf", "together"]:
-            raise NotImplementedError(f"{gi._format} not supported for chat completion")
-        
-        # deepcopy the gi to avoid modifying the original
-        # TODO: This might not be the best idea for local LLMs, I need to find a way to handle them properly without having to clone the weights
-        gi = deepcopy(gi)
-
-        # NOTE (design choice): the kwargs here are added to the ones in the gi.completions_parameters, and overwrite them if they are already present
-        if generation_parameters is not None:
-            for k, v in gi.completion_parameters.kwargs.items():
-                if k not in generation_parameters.kwargs:
-                    generation_parameters.kwargs[k] = v
-            
-            gi.completion_parameters = generation_parameters
-
-        back_off = True
-        retry = max(retry + 1, 1)
-
-        complete_from = self
-        if force_prepend is not None:
-            complete_from = self.add_child(
-                ChatNode(content=force_prepend, role="assistant"), illegitimate=True
-            )
-
-        messages = complete_from.get_messages(
-            gi=gi,
-            merge_contiguous=merge_contiguous
-        )
-
-        api = None
-        if gi.api_key is not None:
-            api = {
-                "openai": [OpenAI(api_key=gi.api_key), AsyncOpenAI(api_key=gi.api_key)][use_async],
-                "anthropic": [Anthropic(api_key=gi.api_key), AsyncAnthropic(api_key=gi.api_key)][use_async],
-                "mistralai": Mistral(api_key=gi.api_key),
-                "together": [Together(api_key=gi.api_key), AsyncTogether(api_key=gi.api_key)][use_async],
-                "url": gi.api_url,
-                "hf": None
-            }[gi._format]
-        else:
-            api = {
-                "openai": [openai_api, openai_async_api][use_async],
-                "anthropic": [anthropic_api, anthropic_async_api][use_async],
-                "mistralai": mistralai_api,
-                "together": [together_api, together_async_api][use_async],
-                "url": gi.api_url,
-                "hf": None
-            }[gi._format]
-
-        complete = {
-            "hf": self.__chat_complete_hf,
-        }
-        if not use_async:
-            complete.update({
-                "openai": self.__chat_complete_openai,
-                "anthropic": self.__chat_complete_anthropic,
-                "mistralai": self.__chat_complete_mistralai,
-                "together": self.__chat_complete_together,
-                "url": self.__chat_complete_url
-            })
-        else:
-            complete.update({
-                "openai": self.__chat_complete_openai_async,
-                "anthropic": self.__chat_complete_anthropic_async,
-                "mistralai": self.__chat_complete_mistralai_async,
-                "together": self.__chat_complete_together_async,
-                "url": self.__chat_complete_url_async
-            })
-
-        complete = complete[gi._format]
-    
-        child = None
-        content = ""
-        while retry:
-            try:
-                if use_async and gi._format != "hf":
-                    content = await complete(gi, messages, api, force_prepend)
-                else:
-                    content = complete(gi, messages, api, force_prepend)
-
-                if crash_on_empty_response and content.strip() == "":
-                    raise Exception(f"No content returned by the model: {content}. The request was: {messages} and the model used was: {gi.model}")
-
-                to_prepend = force_prepend or ""
-                if not content.startswith(to_prepend):
-                    content = to_prepend + content
-                
-                if parse_json:
-                    # Prevent back_off if parsing is failing
-                    back_off = False
-                    parsed_content = extract_json_from_completion(content)
-
-                    if parsed_content in ['""', "{}", ''] and crash_on_refusal:
-                        raise Exception(f"No JSON found in the response: {content}. The request was: {messages} and the model used was: {gi.model}")
-                    back_off = True
-                    content = parsed_content
-                child = ChatNode(content=content, role="assistant")
-                break
-            except Exception as e:
-                print(f"{Fore.RED}Error: {Fore.RESET}{e}")
-                print("AI content: ", content)
-                if retry <= 1:
-                    raise e
-                retry -= 1
-                if back_off:
-                    time.sleep(back_off_time)
-                    if exp_back_off:
-                        back_off_time = min(back_off_time * 2, max_back_off)
-                else:
-                    back_off = True
-        
-        if add_child:
-            self.add_child(child)
-        return child
-
-    def complete_one(self,
-        completion_params: NodeCompletionParameters | GeneratorInfo,
-    ) -> ChatNode:
-        """Synchronous version of complete_one."""
-        # Get current thread event loop or create one
-        try:
-            # If we're already in an event loop context (e.g., Jupyter)
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # Create a new loop for this thread to avoid nested loop issues
-                new_loop = asyncio.new_event_loop()
-                try:
-                    # Use the new loop for this call only
-                    asyncio.set_event_loop(new_loop)
-                    return new_loop.run_until_complete(
-                        self.general_complete_one(completion_params, use_async=False)
-                    )
-                finally:
-                    # Always restore the original loop and close the new one
-                    asyncio.set_event_loop(loop)
-                    new_loop.close()
-            else:
-                # We have a loop but it's not running
-                return loop.run_until_complete(
-                    self.general_complete_one(completion_params, use_async=False)
-                )
-        except RuntimeError:
-            # No event loop exists, use asyncio.run (creates and disposes a loop)
-            return asyncio.run(self.general_complete_one(completion_params, use_async=False))
-
-    def complete(self,
-        completion_params: NodeCompletionParameters | GeneratorInfo
-    ) -> ChatNode | List[ChatNode]:
-        """Synchronous version of complete."""
-        if isinstance(completion_params, GeneratorInfo):
-            return self.complete(NodeCompletionParameters(gi=completion_params))
-
-        # We call complete_one which handles the event loop management
-        children = [
-            self.complete_one(completion_params) 
-            for _ in range(
-                completion_params.generation_parameters.n 
-                if completion_params.generation_parameters is not None 
-                else completion_params.gi.completion_parameters.n
-            )
-        ]
-
-        return children if len(children) > 1 else children[0]
-    
-    async def complete_one_async(self,
-        completion_params: NodeCompletionParameters | GeneratorInfo
-    ) -> ChatNode:
-        """Asynchronous version of complete_one - uses native async code paths"""
-        return await self.general_complete_one(
-            completion_params=completion_params,
-            use_async=True
-        )
-    
-    async def complete_async(self,
-        completion_params: NodeCompletionParameters | GeneratorInfo
-    ) -> ChatNode | List[ChatNode]:
-        if isinstance(completion_params, GeneratorInfo):
-            return await self.complete_async(NodeCompletionParameters(gi=completion_params))
-
-        tasks = [
-            self.complete_one_async(completion_params)
-            for _ in range(
-                completion_params.generation_parameters.n 
-                if completion_params.generation_parameters is not None 
-                else completion_params.gi.completion_parameters.n
-            )
-        ]
-
-        children = await asyncio.gather(*tasks)
-
-        return children if len(children) > 1 else children[0]
-    
     if HUGGINGFACE_ACTIVATED:
         @torch.no_grad()
         def hf_compute_logits(self, 
