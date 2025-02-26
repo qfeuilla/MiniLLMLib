@@ -2,28 +2,29 @@
 from __future__ import annotations
 
 import asyncio
-from copy import deepcopy
 import json
 import os
 import time
 import warnings
+from copy import deepcopy
 from typing import Any, Dict, List, Optional
 
+import aiohttp
 import requests
-from anthropic import Anthropic
+from anthropic import Anthropic, AsyncAnthropic
 from anthropic.types.message import Message
 from colorama import Fore
 from mistralai import Mistral
-from openai import OpenAI
+from openai import AsyncOpenAI, OpenAI
 from openai.types.chat import ChatCompletion
-from together import Together
+from together import AsyncTogether, Together
 
 from ..models.generator_info import (HUGGINGFACE_ACTIVATED,
                                      GeneratorCompletionParameters,
                                      GeneratorInfo, pretty_messages, torch)
 from ..utils.json_utils import extract_json_from_completion, to_dict
 from ..utils.message_utils import (NodeCompletionParameters, format_prompt,
-                                   hf_process_messages,
+                                   get_payload, hf_process_messages,
                                    merge_contiguous_messages)
 
 warnings.filterwarnings("ignore", message=".*verification is strongly advised.*")
@@ -33,17 +34,47 @@ try:
 except:
     anthropic_api = None
 try:
+    anthropic_async_api = AsyncAnthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", None))
+except:
+    anthropic_async_api = None
+
+
+try:
     openai_api = OpenAI(api_key=os.environ.get("OPENAI_API_KEY", None))
 except:
     openai_api = None
 try:
+    openai_async_api = AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY", None))
+except:
+    openai_async_api = None
+
+
+try:
     mistralai_api = Mistral(api_key=os.environ.get("MISTRAL_API_KEY", None))
 except:
     mistralai_api = None
+
+
 try:
     together_api = Together(api_key=os.environ.get("TOGETHER_API_KEY", None))
 except:
     together_api = None
+try:
+    together_async_api = AsyncTogether(api_key=os.environ.get("TOGETHER_API_KEY", None))
+except:
+    together_async_api = None
+
+# Create a single shared session object at the module level
+_AIOHTTP_SESSION = None
+
+async def get_aiohttp_session():
+    global _AIOHTTP_SESSION
+    if _AIOHTTP_SESSION is None or _AIOHTTP_SESSION.closed:
+        connector = aiohttp.TCPConnector(limit=100, limit_per_host=100, ssl=False)
+        timeout = aiohttp.ClientTimeout(total=60)
+        _AIOHTTP_SESSION = aiohttp.ClientSession(connector=connector, timeout=timeout)
+    return _AIOHTTP_SESSION
+
 
 # NOTE: This object can be used in two shapes:
 # - A Thread (in case there is only one child per node) --> I use it mostly like this. Loom will be for when we'll do the cyborg tool
@@ -258,18 +289,16 @@ class ChatNode:
         api: OpenAI,
         *_1, **_2
     ) -> str:
-        response: ChatCompletion = api.chat.completions.create(
-            model=gi.model,
-            messages=messages,
-            temperature=gi.completion_parameters.temperature,
-            max_tokens=gi.completion_parameters.max_tokens,
-            **gi.completion_parameters.kwargs
-        ) if not gi.deactivate_default_params else api.chat.completions.create(
-            model=gi.model,
-            messages=messages,
-            **gi.completion_parameters.kwargs
-        )
+        response: ChatCompletion = api.chat.completions.create(**get_payload(gi, messages))
+        return response.choices[0].message.content
 
+    async def __chat_complete_openai_async(self,
+        gi: GeneratorInfo,
+        messages: List[Dict[str, str]],
+        api: AsyncOpenAI,
+        *_1, **_2
+    ) -> str:
+        response: ChatCompletion = await api.chat.completions.create(**get_payload(gi, messages))
         return response.choices[0].message.content
 
     def __chat_complete_anthropic(self,
@@ -284,21 +313,36 @@ class ChatNode:
             messages = messages[1:]
         system_prompt = system_prompt[:-1]
 
+        payload = get_payload(gi, messages)
+
         response: Message = api.messages.create(
-            model=gi.model,
             system=system_prompt if system_prompt else None,
-            messages=messages,
-            temperature=gi.completion_parameters.temperature,
-            max_tokens=gi.completion_parameters.max_tokens,
-            **gi.completion_parameters.kwargs
-        ) if not gi.deactivate_default_params else api.messages.create(
-            model=gi.model,
-            system=system_prompt if system_prompt else None,
-            messages=messages,
-            **gi.completion_parameters.kwargs
+            **payload
         )
 
         return response.content[0].text
+
+    async def __chat_complete_anthropic_async(self,
+        gi: GeneratorInfo,
+        messages: List[Dict[str, str]],
+        api: AsyncAnthropic,
+        *_1, **_2
+    ) -> str:
+        system_prompt = ""
+        while messages[0]["role"] == "system":
+            system_prompt += messages[0]["content"] + "\n"
+            messages = messages[1:]
+        system_prompt = system_prompt[:-1]
+
+        payload = get_payload(gi, messages)
+
+        response: Message = await api.messages.create(
+            system=system_prompt if system_prompt else None,
+            **payload
+        )
+
+        return response.content[0].text
+
 
     def __chat_complete_mistralai(self,
         gi: GeneratorInfo,
@@ -306,36 +350,34 @@ class ChatNode:
         api: Mistral,
         *_1, **_2
     ) -> str:
-        response = api.chat.complete(
-            model=gi.model,
-            messages=messages,
-            temperature=gi.completion_parameters.temperature,
-            max_tokens=gi.completion_parameters.max_tokens,
-            **gi.completion_parameters.kwargs
-        ) if not gi.deactivate_default_params else api.chat.completions.create(
-            model=gi.model,
-            messages=messages,
-            **gi.completion_parameters.kwargs
-        )
+        response = api.chat.complete(**get_payload(gi, messages))
         return response.choices[0].message.content
     
+    async def __chat_complete_mistralai_async(self,
+        gi: GeneratorInfo,
+        messages: List[Dict[str, str]],
+        api: Mistral,
+        *_1, **_2
+    ) -> str:
+        response = await api.chat.complete_async(**get_payload(gi, messages))
+        return response.choices[0].message.content
+
     def __chat_complete_together(self,
         gi: GeneratorInfo,
         messages: List[Dict[str, str]],
         api: Together,
         *_1, **_2
     ) -> str:
-        response = api.chat.completions.create(
-            model=gi.model,
-            messages=messages,
-            temperature=gi.completion_parameters.temperature,
-            max_tokens=gi.completion_parameters.max_tokens,
-            **gi.completion_parameters.kwargs
-        ) if not gi.deactivate_default_params else api.chat.completions.create(
-            model=gi.model,
-            messages=messages,
-            **gi.completion_parameters.kwargs
-        )
+        response = api.chat.completions.create(**get_payload(gi, messages))
+        return response.choices[0].message.content
+
+    async def __chat_complete_together_async(self,
+        gi: GeneratorInfo,
+        messages: List[Dict[str, str]],
+        api: AsyncTogether,
+        *_1, **_2
+    ) -> str:
+        response = await api.chat.completions.create(**get_payload(gi, messages))
         return response.choices[0].message.content
     
     def __chat_complete_url(self,
@@ -344,21 +386,12 @@ class ChatNode:
         api_url: str,
         *_1, **_2
     ) -> str:
+        
         headers = {"Authorization": f"Bearer {gi.api_key}"}
         response = requests.post(
             api_url,
             headers=headers,
-            json={
-                "model": gi.model,
-                "messages": messages,
-                "temperature": gi.completion_parameters.temperature,
-                "max_tokens": gi.completion_parameters.max_tokens,
-                **gi.completion_parameters.kwargs,
-            } if not gi.deactivate_default_params else {
-                "model": gi.model,
-                "messages": messages,
-                **gi.completion_parameters.kwargs,
-            },
+            json={**get_payload(gi, messages)},
             verify=False
         )
         try:
@@ -371,6 +404,32 @@ class ChatNode:
 
         return response["choices"][0]["message"]["content"]
     
+    async def __chat_complete_url_async(self,
+        gi: GeneratorInfo,
+        messages: List[Dict[str, str]],
+        api_url: str,
+        *_1, **_2
+    ) -> str:
+        headers = {"Authorization": f"Bearer {gi.api_key}"}
+
+        session = await get_aiohttp_session()
+
+        async with session.post(
+            api_url,
+            headers=headers,
+            json={**get_payload(gi, messages)},
+            raise_for_status=True
+        ) as response:
+            try:
+                response = await response.json()
+            except Exception as e:
+                raise Exception(f"{Fore.RED}Error: {Fore.RESET} {e} \n Response: {response}")
+
+        if "choices" not in response:
+            raise Exception(f"{Fore.RED}Error: {Fore.RESET} {response}")
+
+        return response["choices"][0]["message"]["content"]
+
     def __chat_complete_hf(self,
         gi: GeneratorInfo,
         messages: List[Dict[str, str]],
@@ -408,8 +467,9 @@ class ChatNode:
 
         return decoded
 
-    def complete_one(self,
-        completion_params: NodeCompletionParameters | GeneratorInfo
+    async def general_complete_one(self, 
+        completion_params: NodeCompletionParameters | GeneratorInfo,
+        use_async: bool = False
     ) -> ChatNode:
         if isinstance(completion_params, GeneratorInfo):
             return self.complete_one(NodeCompletionParameters(gi=completion_params))
@@ -463,37 +523,53 @@ class ChatNode:
         api = None
         if gi.api_key is not None:
             api = {
-                "openai": OpenAI(api_key=gi.api_key),
-                "anthropic": Anthropic(api_key=gi.api_key),
+                "openai": [OpenAI(api_key=gi.api_key), AsyncOpenAI(api_key=gi.api_key)][use_async],
+                "anthropic": [Anthropic(api_key=gi.api_key), AsyncAnthropic(api_key=gi.api_key)][use_async],
                 "mistralai": Mistral(api_key=gi.api_key),
-                "together": Together(api_key=gi.api_key),
+                "together": [Together(api_key=gi.api_key), AsyncTogether(api_key=gi.api_key)][use_async],
                 "url": gi.api_url,
                 "hf": None
             }[gi._format]
         else:
             api = {
-                "openai": openai_api,
-                "anthropic": anthropic_api,
+                "openai": [openai_api, openai_async_api][use_async],
+                "anthropic": [anthropic_api, anthropic_async_api][use_async],
                 "mistralai": mistralai_api,
-                "together": together_api,
+                "together": [together_api, together_async_api][use_async],
                 "url": gi.api_url,
                 "hf": None
             }[gi._format]
 
         complete = {
-            "openai": self.__chat_complete_openai,
-            "anthropic": self.__chat_complete_anthropic,
-            "mistralai": self.__chat_complete_mistralai,
-            "together": self.__chat_complete_together,
-            "url": self.__chat_complete_url,
-            "hf": self.__chat_complete_hf
-        }[gi._format]
+            "hf": self.__chat_complete_hf,
+        }
+        if not use_async:
+            complete.update({
+                "openai": self.__chat_complete_openai,
+                "anthropic": self.__chat_complete_anthropic,
+                "mistralai": self.__chat_complete_mistralai,
+                "together": self.__chat_complete_together,
+                "url": self.__chat_complete_url
+            })
+        else:
+            complete.update({
+                "openai": self.__chat_complete_openai_async,
+                "anthropic": self.__chat_complete_anthropic_async,
+                "mistralai": self.__chat_complete_mistralai_async,
+                "together": self.__chat_complete_together_async,
+                "url": self.__chat_complete_url_async
+            })
 
+        complete = complete[gi._format]
+    
         child = None
         content = ""
         while retry:
             try:
-                content = complete(gi, messages, api, force_prepend)
+                if use_async and gi._format != "hf":
+                    content = await complete(gi, messages, api, force_prepend)
+                else:
+                    content = complete(gi, messages, api, force_prepend)
 
                 if crash_on_empty_response and content.strip() == "":
                     raise Exception(f"No content returned by the model: {content}. The request was: {messages} and the model used was: {gi.model}")
@@ -529,7 +605,12 @@ class ChatNode:
         if add_child:
             self.add_child(child)
         return child
-    
+
+    def complete_one(self,
+        completion_params: NodeCompletionParameters | GeneratorInfo,
+    ) -> ChatNode:
+        return asyncio.run(self.general_complete_one(completion_params, use_async=False))
+
     def complete(self,
         completion_params: NodeCompletionParameters | GeneratorInfo
     ) -> ChatNode | List[ChatNode]:
@@ -550,9 +631,9 @@ class ChatNode:
     async def complete_one_async(self,
         completion_params: NodeCompletionParameters | GeneratorInfo
     ) -> ChatNode:
-        return await asyncio.to_thread(
-            self.complete_one,
-            completion_params=completion_params
+        return await self.general_complete_one(
+            completion_params=completion_params,
+            use_async=True
         )
     
     async def complete_async(self,

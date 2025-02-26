@@ -4,7 +4,7 @@ import json
 import os
 import tempfile
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, patch, AsyncMock
 
 from minillmlib.core.chat_node import HUGGINGFACE_ACTIVATED, ChatNode, torch
 from minillmlib.models.generator_info import (GeneratorCompletionParameters,
@@ -153,12 +153,12 @@ class TestChatNode(unittest.IsolatedAsyncioTestCase):
 
     async def test_complete_async(self):
         # Test async completion
-        mock_client = Mock()
+        mock_client = AsyncMock()
         mock_response = Mock()
         mock_response.choices = [Mock(message=Mock(content="Test response"))]
         mock_client.chat.completions.create.return_value = mock_response
 
-        with patch('minillmlib.core.chat_node.OpenAI', return_value=mock_client):
+        with patch('minillmlib.core.chat_node.AsyncOpenAI', return_value=mock_client):
             params = NodeCompletionParameters(
                 gi=self.gi,
                 add_child=True
@@ -448,14 +448,14 @@ class TestChatNode(unittest.IsolatedAsyncioTestCase):
 
     async def test_complete_multiple_async(self):
         # Test async completion of multiple responses
-        mock_client = Mock()
+        mock_client = AsyncMock()
         mock_response1 = Mock()
         mock_response2 = Mock()
         mock_response1.choices = [Mock(message=Mock(content="Async Response 1"))]
         mock_response2.choices = [Mock(message=Mock(content="Async Response 2"))]
         mock_client.chat.completions.create.side_effect = [mock_response1, mock_response2]
 
-        with patch('minillmlib.core.chat_node.OpenAI', return_value=mock_client):
+        with patch('minillmlib.core.chat_node.AsyncOpenAI', return_value=mock_client):
             params = NodeCompletionParameters(
                 gi=self.gi,
                 add_child=True,

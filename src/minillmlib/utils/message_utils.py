@@ -1,6 +1,6 @@
 """Message processing utilities for MiniLLMLib."""
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 
 from ..models.generator_info import (GeneratorCompletionParameters,
                                      GeneratorInfo)
@@ -101,6 +101,18 @@ def hf_process_messages(
             ).to(gi.hf_device)
         
         return inputs
+
+def get_payload(gi: GeneratorInfo, messages: List[Dict[str, str]]) -> Dict[str, Any]:
+    payload = {
+        "model": gi.model,
+        "messages": messages,
+        **gi.completion_parameters.kwargs
+    }
+    if not gi.deactivate_default_params:
+        payload["temperature"] = gi.completion_parameters.temperature
+        payload["max_tokens"] = gi.completion_parameters.max_tokens
+
+    return payload
 
 @dataclass
 class NodeCompletionParameters:

@@ -54,7 +54,8 @@ for model_name in [
 openrouter = {}
 for model_name, uri in [
     ("hermes-405b", "nousresearch/hermes-3-llama-3.1-405b"),
-    ("deepseek-v3", "deepseek/deepseek-chat")
+    ("deepseek-v3", "deepseek/deepseek-chat"),
+    ("mistral-7b-instruct", "mistralai/mistral-7b-instruct")
 ]:
     openrouter[model_name] = GeneratorInfo(
         model=uri,
