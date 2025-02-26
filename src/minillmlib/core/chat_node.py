@@ -472,7 +472,7 @@ class ChatNode:
         use_async: bool = False
     ) -> ChatNode:
         if isinstance(completion_params, GeneratorInfo):
-            return self.complete_one(NodeCompletionParameters(gi=completion_params))
+            return await self.general_complete_one(NodeCompletionParameters(gi=completion_params), use_async=use_async)
 
         gi: GeneratorInfo
         generation_parameters: Optional[GeneratorCompletionParameters]
