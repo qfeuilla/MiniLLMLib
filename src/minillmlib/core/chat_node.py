@@ -609,14 +609,41 @@ class ChatNode:
     def complete_one(self,
         completion_params: NodeCompletionParameters | GeneratorInfo,
     ) -> ChatNode:
-        return asyncio.run(self.general_complete_one(completion_params, use_async=False))
+        """Synchronous version of complete_one."""
+        # Get current thread event loop or create one
+        try:
+            # If we're already in an event loop context (e.g., Jupyter)
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # Create a new loop for this thread to avoid nested loop issues
+                new_loop = asyncio.new_event_loop()
+                try:
+                    # Use the new loop for this call only
+                    asyncio.set_event_loop(new_loop)
+                    return new_loop.run_until_complete(
+                        self.general_complete_one(completion_params, use_async=False)
+                    )
+                finally:
+                    # Always restore the original loop and close the new one
+                    asyncio.set_event_loop(loop)
+                    new_loop.close()
+            else:
+                # We have a loop but it's not running
+                return loop.run_until_complete(
+                    self.general_complete_one(completion_params, use_async=False)
+                )
+        except RuntimeError:
+            # No event loop exists, use asyncio.run (creates and disposes a loop)
+            return asyncio.run(self.general_complete_one(completion_params, use_async=False))
 
     def complete(self,
         completion_params: NodeCompletionParameters | GeneratorInfo
     ) -> ChatNode | List[ChatNode]:
+        """Synchronous version of complete."""
         if isinstance(completion_params, GeneratorInfo):
             return self.complete(NodeCompletionParameters(gi=completion_params))
 
+        # We call complete_one which handles the event loop management
         children = [
             self.complete_one(completion_params) 
             for _ in range(
@@ -631,6 +658,7 @@ class ChatNode:
     async def complete_one_async(self,
         completion_params: NodeCompletionParameters | GeneratorInfo
     ) -> ChatNode:
+        """Asynchronous version of complete_one - uses native async code paths"""
         return await self.general_complete_one(
             completion_params=completion_params,
             use_async=True
