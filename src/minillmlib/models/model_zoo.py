@@ -45,10 +45,17 @@ for model_name in [
     "gpt-3.5-turbo-0125",
     "gpt-3.5-turbo"
 ]:
+
+    completion_params = {}
+    if "o1" in model_name:
+        completion_params["max_completion_tokens"] = 42000
     openai[model_name] = GeneratorInfo(
         model=model_name,
         _format="openai",
-        deactivate_default_params="o1" in model_name
+        deactivate_default_params="o1" in model_name,
+        completion_parameters=GeneratorCompletionParameters(
+            **completion_params
+        )
     )
 
 openrouter = {}
@@ -63,11 +70,72 @@ for model_name, uri in [
         api_url=f"https://openrouter.ai/api/v1/chat/completions",
         api_key=os.getenv("OPENROUTER_API_KEY"),
         completion_parameters=GeneratorCompletionParameters(
-            kwargs={
-                "provider": {
-                    "data_collection": "deny",
-                    "sort": "throughput"
-                }
+            provider={
+                "data_collection": "deny",
+                "sort": "throughput"
             }
         )
+    )
+
+bet_leaderboard_v1 = {}
+for model_name, uri in [
+    ("yi-large", "01-ai/yi-large"),
+    ("grok-2-1212", "x-ai/grok-2-1212"),
+    ("gpt-4o-mini-2024-07-18", "openai/gpt-4o-mini-2024-07-18"),
+    ("gpt-4o-2024-11-20", "openai/gpt-4o-2024-11-20"),
+    ("gpt-4o-2024-08-06", "openai/gpt-4o-2024-08-06"),
+    ("pixtral-large-2411", "mistralai/pixtral-large-2411"),
+    ("mixtral-8x22b-instruct", "mistralai/mixtral-8x22b-instruct"),
+    ("mixtral-8x7b-instruct", "mistralai/mixtral-8x7b-instruct"),
+    ("mistral-nemo", "mistralai/mistral-nemo"),
+    ("ministral-8b", "mistralai/ministral-8b"),
+    ("phi-4", "microsoft/phi-4"),
+    ("llama-3.3-70b-instruct", "meta-llama/llama-3.3-70b-instruct"),
+    ("llama-3.2-90b-vision-instruct", "meta-llama/llama-3.2-90b-vision-instruct"),
+    ("llama-3.2-11b-vision-instruct", "meta-llama/llama-3.2-11b-vision-instruct"),
+    ("llama-3.2-1b-instruct", "meta-llama/llama-3.2-1b-instruct"),
+    ("llama-3.1-405b-instruct", "meta-llama/llama-3.1-405b-instruct"),
+    ("llama-3.1-70b-instruct", "meta-llama/llama-3.1-70b-instruct"),
+    ("llama-3.1-8b-instruct", "meta-llama/llama-3.1-8b-instruct"),
+    ("gemma-2-27b-it", "google/gemma-2-27b-it"),
+    ("gemini-pro-1.5", "google/gemini-pro-1.5"),
+    ("deepseek-v3", "deepseek/deepseek-chat"),
+    ("deepseek-r1", "deepseek/deepseek-r1"),
+    ("claude-3.5-sonnet-20240620", "anthropic/claude-3.5-sonnet-20240620"),
+    ("claude-3.5-sonnet-20241022", "anthropic/claude-3.5-sonnet"),
+    ("claude-3.5-haiku-20241022", "anthropic/claude-3.5-haiku-20241022"),
+    ("claude-3-sonnet", "anthropic/claude-3-sonnet"),
+    ("claude-3-haiku", "anthropic/claude-3-haiku"),
+    ("claude-3-opus", "anthropic/claude-3-opus"),
+    ("nova-pro-v1", "amazon/nova-pro-v1"),
+    ("nova-lite-v1", "amazon/nova-lite-v1"),
+    ("nova-micro-v1", "amazon/nova-micro-v1"),
+    ("qwen-plus", "qwen/qwen-plus"),
+    ("qwen-max", "qwen/qwen-max"),
+    ("qwen-2.5-72b-instruct", "qwen/qwen-2.5-72b-instruct"),
+    ("qwen-2.5-7b-instruct", "qwen/qwen-2.5-7b-instruct")
+]:
+    bet_leaderboard_v1[model_name] = GeneratorInfo(
+        model=uri,
+        _format="url",
+        api_url=f"https://openrouter.ai/api/v1/chat/completions",
+        api_key=os.getenv("OPENROUTER_API_KEY"),
+        completion_parameters=GeneratorCompletionParameters(
+            provider={
+                "data_collection": "deny",
+                "sort": "throughput"
+            },
+            max_tokens=512 if model_name != "deepseek/deepseek-r1" else 42000,
+        )
+    )
+
+for model_name in ["o3-mini-2025-01-14", "o1-2024-12-17"]:
+    bet_leaderboard_v1[model_name] = GeneratorInfo(
+        model=uri,
+        _format="openai",
+        api_key=os.getenv("OPENAI_API_KEY"),
+        completion_parameters=GeneratorCompletionParameters(
+            max_completion_tokens=42000,
+        ),
+        deactivate_default_params=True
     )
