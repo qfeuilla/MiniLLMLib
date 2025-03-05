@@ -672,13 +672,15 @@ class ChatNode:
     ) -> str:
         headers = {"Authorization": f"Bearer {gi.api_key}"}
 
+        response = {}
         async with httpx.AsyncClient(verify=False) as client:
             try:
-                response = (await client.get(
+                response = (await client.post(
                     api_url,
                     headers=headers,
                     json={**get_payload(gi, messages)}
-                )).json()
+                ))
+                response = response.json()
             except Exception as e:
                 raise Exception(f"{Fore.RED}Error: {Fore.RESET} {e} \n Response: {response}")
 
