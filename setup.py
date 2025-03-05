@@ -17,7 +17,7 @@ setup(
         "together",
         "colorama",
         "requests",
-        "aiohttp",
+        "httpx",
         "python-dotenv",
         "json_repair",
     ],

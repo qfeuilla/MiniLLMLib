@@ -9,7 +9,7 @@ import warnings
 from copy import deepcopy
 from typing import Any, Dict, List, Optional, Tuple
 
-import aiohttp
+import httpx
 import requests
 from anthropic import Anthropic, AsyncAnthropic
 from anthropic.types.message import Message
@@ -64,16 +64,6 @@ try:
 except:
     together_async_api = None
 
-# Create a single shared session object at the module level
-_AIOHTTP_SESSION = None
-
-async def get_aiohttp_session():
-    global _AIOHTTP_SESSION
-    if _AIOHTTP_SESSION is None or _AIOHTTP_SESSION.closed:
-        connector = aiohttp.TCPConnector(limit=100, limit_per_host=100, ssl=False)
-        timeout = aiohttp.ClientTimeout(total=60)
-        _AIOHTTP_SESSION = aiohttp.ClientSession(connector=connector, timeout=timeout)
-    return _AIOHTTP_SESSION
 
 
 # NOTE: This object can be used in two shapes:
@@ -682,16 +672,13 @@ class ChatNode:
     ) -> str:
         headers = {"Authorization": f"Bearer {gi.api_key}"}
 
-        session = await get_aiohttp_session()
-
-        async with session.post(
-            api_url,
-            headers=headers,
-            json={**get_payload(gi, messages)},
-            raise_for_status=True
-        ) as response:
+        async with httpx.AsyncClient(verify=False) as client:
             try:
-                response = await response.json()
+                response = (await client.get(
+                    api_url,
+                    headers=headers,
+                    json={**get_payload(gi, messages)}
+                )).json()
             except Exception as e:
                 raise Exception(f"{Fore.RED}Error: {Fore.RESET} {e} \n Response: {response}")
 
