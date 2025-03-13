@@ -1,16 +1,8 @@
 """Models module for MiniLLMLib."""
 
-from .generator_info import (
-    GeneratorInfo,
-    GeneratorCompletionParameters,
-    HUGGINGFACE_ACTIVATED,
-)
-
-from .model_zoo import (
-    anthropic,
-    openai,
-    openrouter
-)
+from .generator_info import (HUGGINGFACE_ACTIVATED,
+                             GeneratorCompletionParameters, GeneratorInfo)
+from .model_zoo import anthropic, openai, openrouter, openai_audio
 
 __all__ = [
     'GeneratorInfo',
@@ -18,5 +10,6 @@ __all__ = [
     'HUGGINGFACE_ACTIVATED',
     'anthropic',
     'openai',
-    'openrouter'
+    'openrouter',
+    'openai_audio'
 ]

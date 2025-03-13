@@ -52,11 +52,22 @@ for model_name in [
     openai[model_name] = GeneratorInfo(
         model=model_name,
         _format="openai",
-        deactivate_default_params="o1" in model_name,
+        deactivate_max_tokens="o1" in model_name,
         completion_parameters=GeneratorCompletionParameters(
             **completion_params
         )
     )
+
+openai_audio = {
+    "gpt-4o-audio-preview": GeneratorInfo(
+        model="gpt-4o-audio-preview",
+        _format="openai-audio",
+        completion_parameters=GeneratorCompletionParameters(
+            voice="alloy",
+        ),
+        deactivate_max_tokens=True
+    )
+}
 
 openrouter = {}
 for model_name, uri in [
@@ -137,5 +148,5 @@ for model_name in ["o3-mini-2025-01-14", "o1-2024-12-17"]:
         completion_parameters=GeneratorCompletionParameters(
             max_completion_tokens=42000,
         ),
-        deactivate_default_params=True
+        deactivate_max_tokens=True
     )

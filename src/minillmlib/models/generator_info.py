@@ -1,6 +1,6 @@
 """Generator information and model configurations for MiniLLMLib."""
 from dataclasses import MISSING, dataclass, field, fields
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Literal, Optional, Tuple
 
 HUGGINGFACE_ACTIVATED = False
 try:
@@ -13,9 +13,15 @@ except:
 
 @dataclass(kw_only=True)
 class GeneratorCompletionParameters:
+    # Text
     temperature: float = 0.8
     max_tokens: int = 512
     n: int = 1
+    
+    # Audio
+    voice: Literal['alloy', 'ash', 'ballad', 'coral', 'echo', 'sage', 'shimmer'] = "alloy"
+    audio_output_folder: Optional[str] = None
+
     kwargs: Dict[str, Any] = field(default_factory=dict)
 
     def __init__(self, **kwargs):
@@ -60,11 +66,12 @@ class GeneratorInfo:
     # API
     api_url: Optional[str] = None
     api_key: Optional[str] = None
-    _format: str = "openai"
+    _format: Literal["openai", "openai-audio", "anthropic", "url", "mistralai", "hf", "together", "prettify"] = "openai"
     force_merge: bool = False
     enforce_json_compatible_prompt: bool = False
     no_system: bool = False
-    deactivate_default_params: bool = False
+    deactivate_temperature: bool = False
+    deactivate_max_tokens: bool = False
     
     # Additional information
     price_table: Tuple[float, float] = (0.0, 0.0)
@@ -119,7 +126,8 @@ class GeneratorInfo:
             and self._format == value._format
             and self.no_system == value.no_system
             and self.translation_table == value.translation_table
-            and self.deactivate_default_params == value.deactivate_default_params
+            and self.deactivate_temperature == value.deactivate_temperature
+            and self.deactivate_max_tokens == value.deactivate_max_tokens
             and self.force_merge == value.force_merge
             and self.price_table == value.price_table
             and self.is_uncensored == value.is_uncensored
@@ -140,7 +148,8 @@ class GeneratorInfo:
             self.force_merge,
             self.api_key,
             self.is_uncensored,
-            self.deactivate_default_params,
+            self.deactivate_max_tokens,
+            self.deactivate_temperature,
             self.enforce_json_compatible_prompt
         ))
 

@@ -19,51 +19,32 @@ from openai import AsyncOpenAI, OpenAI
 from openai.types.chat import ChatCompletion
 from together import AsyncTogether, Together
 
-from ..models.generator_info import (HUGGINGFACE_ACTIVATED,
-                                     GeneratorCompletionParameters,
-                                     GeneratorInfo, pretty_messages, torch)
+from ..models.generator_info import (HUGGINGFACE_ACTIVATED, GeneratorInfo,
+                                     pretty_messages, torch)
 from ..utils.json_utils import extract_json_from_completion, to_dict
-from ..utils.message_utils import (NodeCompletionParameters, format_prompt,
-                                   get_payload, hf_process_messages,
-                                   merge_contiguous_messages)
+from ..utils.message_utils import (NodeCompletionParameters, base64_to_wav,
+                                   format_prompt, get_payload,
+                                   hf_process_messages,
+                                   merge_contiguous_messages,
+                                   process_audio_for_completion, AudioData)
 
 warnings.filterwarnings("ignore", message=".*verification is strongly advised.*")
 
-try:
-    anthropic_api = Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", None))
-except:
-    anthropic_api = None
-try:
-    anthropic_async_api = AsyncAnthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", None))
-except:
-    anthropic_async_api = None
+def _initialize_api(api_class, env_key: str, async_api_class=None):
+    try:
+        api_key = os.environ.get(env_key)
+        sync_client = api_class(api_key=api_key) if api_key else None
+        async_client = async_api_class(api_key=api_key) if api_key and async_api_class else None
+        return sync_client, async_client
+    except Exception as e:
+        print(f"{Fore.YELLOW}Warning: Failed to initialize {api_class.__name__}: {e}{Fore.RESET}")
+        return None, None
 
-
-try:
-    openai_api = OpenAI(api_key=os.environ.get("OPENAI_API_KEY", None))
-except:
-    openai_api = None
-try:
-    openai_async_api = AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY", None))
-except:
-    openai_async_api = None
-
-
-try:
-    mistralai_api = Mistral(api_key=os.environ.get("MISTRAL_API_KEY", None))
-except:
-    mistralai_api = None
-
-
-try:
-    together_api = Together(api_key=os.environ.get("TOGETHER_API_KEY", None))
-except:
-    together_api = None
-try:
-    together_async_api = AsyncTogether(api_key=os.environ.get("TOGETHER_API_KEY", None))
-except:
-    together_async_api = None
-
+# Initialize API clients
+anthropic_api, anthropic_async_api = _initialize_api(Anthropic, "ANTHROPIC_API_KEY", AsyncAnthropic)
+openai_api, openai_async_api = _initialize_api(OpenAI, "OPENAI_API_KEY", AsyncOpenAI)
+mistralai_api, _ = _initialize_api(Mistral, "MISTRAL_API_KEY")
+together_api, together_async_api = _initialize_api(Together, "TOGETHER_API_KEY", AsyncTogether)
 
 
 # NOTE: This object can be used in two shapes:
@@ -71,17 +52,22 @@ except:
 # - A Loom (in case there are multiple children per node)
 class ChatNode:    
     def __init__(self, 
-        content: str, 
+        content: Optional[str] = None, 
         role: str = "user", 
+        audio_data: Optional[AudioData] = None,
         format_kwargs: Optional[Dict[str, Any]] = None
     ):
         """Initialize a ChatNode.
         
         Args:
-            content: The content of the message
+            content: Optional textual content of the message
             role: Role of the message sender (user/assistant/system/base)
+            audio_data: Optional audio data
             format_kwargs: Optional formatting arguments for the content
         """
+        # NOTE (design choice): For now audio and content will be stored in separate nodes
+        if (content is None) == (audio_data is None):
+            raise ValueError(f"content xor audio_data must be provided, audio and content must be sent in separate nodes in the correct order")
 
         if role not in [
             "user",
@@ -104,6 +90,8 @@ class ChatNode:
             k: v for k, v in (format_kwargs or {}).items() if f"{{{k}}}" in self.content
         }
 
+        self.audio_data: Optional[AudioData] = audio_data
+
     def is_root(self) -> bool:
         """Check if this node is the root of the tree."""
         return self._parent is None
@@ -115,7 +103,7 @@ class ChatNode:
     def add_child(self, 
         child: ChatNode, 
         illegitimate: bool = False
-    ) -> None:
+    ) -> ChatNode:
         """Add a child node to this node.
         
         Args:
@@ -140,7 +128,7 @@ class ChatNode:
     def get_messages(self, 
         gi: GeneratorInfo = pretty_messages, 
         merge_contiguous: Optional[str] = "all"
-    ) -> List[Dict[str, str]] | str:
+    ) -> List[Dict[str, Any]] | str:
         """Get all messages in the conversation path to this node."""
         if merge_contiguous not in [
             None,
@@ -160,13 +148,25 @@ class ChatNode:
             if gi.is_chat and current.role == "base":
                 raise ValueError("The role 'base' is not allowed in chat models")
             
-            try:
-                content = format_prompt(current.content, **current.format_kwargs)
-            except Exception as e:
-                print(f"{Fore.YELLOW}Error while formatting the content (formatting skipped){Fore.RESET}: {current.content}: {e}")
-                content = current.content
+            content = None
+            if current.content is not None:
+                try:
+                    content = format_prompt(current.content, **current.format_kwargs)
+                except Exception as e:
+                    print(f"{Fore.YELLOW}Error while formatting the content (formatting skipped){Fore.RESET}: {current.content}: {e}")
+                    content = current.content
+            else:
+                # Check if audio paths are valid
+                for audio_path in current.audio_data.audio_paths:
+                    if not os.path.exists(audio_path) and current.role != "assistant":
+                        # It's ok if the audio paths are not found for assistant messages
+                        raise FileNotFoundError(f"Audio file not found: {audio_path}")
 
-            messages.append({"role": current.role, "content": content})
+            messages.append({
+                "role": current.role, 
+                "content": content,
+                "audio_data": current.audio_data
+            })
             current = current._parent
 
         messages.reverse()
@@ -182,20 +182,76 @@ class ChatNode:
             merge_contiguous="all" if gi.force_merge else merge_contiguous,
         )
 
-        # NOTE: This makes sure that the content is a string that can be JSON decoded without issues (useful in case the LLM API url is not well coded, but it could affect the prompt so it should not be on by default)
-        if gi.enforce_json_compatible_prompt:
-            messages = [
-                {
-                    "role": message["role"],
-                    "content": json.dumps({"prompt": message["content"]})[12:-2],
-                } for message in messages
-            ]
-
         # Choose the correct formatting depending on the gi _format
-        # Opt 1: Do Nothing
+        # Opt 1: Remove the audio from the messages
         if gi._format in ["openai", "anthropic", "url", "mistralai", "hf", "together"]:
-            pass
-        # Opt 2: Use the translation table
+            new_messages = []
+            for message in messages:
+                content = ""
+
+                if message["audio_data"] is not None:
+                    for _id, data in message["audio_data"].audio_ids.items():
+                        # If there is a transcript, use it for the content
+                        if data["transcript"] is not None:
+                            content += "\n" + data["transcript"]
+                        else:
+                            content += f"\n*The {message['role']} attempted to provide an audio here, but there is not transcription available*"
+
+                    # TODO: Maybe use a transcription tool on the file
+                    if message["role"] != "assistant" and len(message["audio_data"].audio_paths) > 0:
+                        content += f"\n*The {message['role']} provided {len(message["audio_data"].audio_paths)} audio, but there is not transcriptions available*"
+                else:
+                    content = message["content"]
+                
+                new_messages.append({
+                    "role": message["role"],
+                    "content": content
+                })
+
+            messages = new_messages
+
+        # Opt 2: Process text and audio for openai
+        elif gi._format == "openai-audio":
+            new_messages = []
+            for message in messages:
+                if message["audio_data"] is not None:
+                    if message["role"] == "assistant":
+                        for _id, data in message["audio_data"].audio_ids.items():
+                            # If the id is not expired, use it, else use the transcript
+                            if data["expires_at"] > time.time():
+                                new_messages.append({
+                                    "role": "assistant",
+                                    "audio": {
+                                        "id": _id
+                                    }
+                                })
+                            else:
+                                new_messages.append({
+                                    "role": "assistant",
+                                    "content": "\n[Audio transcription]\n" + data["transcript"]
+                                })
+                    else: 
+                        audio_data = process_audio_for_completion(file_paths=message["audio_data"].audio_paths)
+                        for chunk in audio_data["chunks"]:
+                            new_messages.append({
+                                "role": message["role"],
+                                "content": [{
+                                    "type": "input_audio",
+                                    "input_audio": {
+                                        "data": chunk,
+                                        "format": "wav"
+                                    }
+                                }]
+                            })
+                else:
+                    new_messages.append({
+                        "role": message["role"],
+                        "content": message["content"]
+                    })
+
+            messages = new_messages
+
+        # Opt 3: Use the translation table
         elif gi._format in ["prettify"]:
             # Check that the translation table is complete
             if not all(
@@ -211,7 +267,18 @@ class ChatNode:
             )
         else:
             raise NotImplementedError(f"{gi._format} not supported. It must be one of ['openai', 'anthropic', 'url', 'mistralai', 'hf', 'together', 'prettify'] to support get_messages")
-    
+
+        # NOTE: This makes sure that the content is a string that can be JSON decoded without issues (useful in case the LLM API url is not well coded, but it could affect the prompt so it should not be on by default)
+        if gi.enforce_json_compatible_prompt:
+            if gi._format == "openai-audio":
+                raise ValueError("enforce_json_compatible_prompt is not supported for openai-audio")
+            messages = [
+                {
+                    "role": message["role"],
+                    "content": json.dumps({"prompt": message["content"]})[12:-2],
+                } for message in messages
+            ]
+
         return messages
     
     def get_child(self,
@@ -264,7 +331,14 @@ class ChatNode:
         json.dump({
             "required_kwargs": self.get_root().format_kwargs,
             "prompts": [
-                {"role": node.role, "content": node.content} for node in node_list
+                {
+                    "role": node.role, 
+                    "content": node.content, 
+                    "audio_data": {
+                        "audio_paths": node.audio_data.audio_paths,
+                        "audio_ids": node.audio_data.audio_ids
+                    } if node.audio_data is not None else None
+                } for node in node_list
             ],
         }, open(path, "w+"), indent=4)
     
@@ -294,7 +368,7 @@ class ChatNode:
         if gi.is_chat == False:
             raise NotImplementedError(f"Non chat completion is not supported for now")
         
-        if gi._format not in ["openai", "anthropic", "url", "mistralai", "hf", "together"]:
+        if gi._format not in ["openai", "openai-audio", "anthropic", "url", "mistralai", "hf", "together"]:
             raise NotImplementedError(f"{gi._format} not supported for chat completion")
         
         # deepcopy the gi to avoid modifying the original
@@ -328,6 +402,7 @@ class ChatNode:
         if gi.api_key is not None:
             api = {
                 "openai": [OpenAI(api_key=gi.api_key), AsyncOpenAI(api_key=gi.api_key)][use_async],
+                "openai-audio": [OpenAI(api_key=gi.api_key), AsyncOpenAI(api_key=gi.api_key)][use_async],
                 "anthropic": [Anthropic(api_key=gi.api_key), AsyncAnthropic(api_key=gi.api_key)][use_async],
                 "mistralai": Mistral(api_key=gi.api_key),
                 "together": [Together(api_key=gi.api_key), AsyncTogether(api_key=gi.api_key)][use_async],
@@ -337,6 +412,7 @@ class ChatNode:
         else:
             api = {
                 "openai": [openai_api, openai_async_api][use_async],
+                "openai-audio": [openai_api, openai_async_api][use_async],
                 "anthropic": [anthropic_api, anthropic_async_api][use_async],
                 "mistralai": mistralai_api,
                 "together": [together_api, together_async_api][use_async],
@@ -357,12 +433,12 @@ class ChatNode:
             "force_prepend": force_prepend
         }
         
-        return gi, params_dict, messages, api, complete_from
+        return gi, params_dict, messages, api
 
     def _process_completion_result(self,
-        content: str,
+        content: str | AudioData,
         params: Dict[str, Any],
-        messages: List[Dict[str, str]],
+        messages: List[Dict[str, Any]],
         gi: GeneratorInfo,
         retry_state: Dict[str, Any]
     ) -> ChatNode:
@@ -376,25 +452,52 @@ class ChatNode:
         crash_on_empty_response = params["crash_on_empty_response"]
         add_child = params["add_child"]
 
-        if crash_on_empty_response and content.strip() == "":
-            raise Exception(f"No content returned by the model: {content}. The request was: {messages} and the model used was: {gi.model}")
+        clean_messages_for_debug = [
+            message if "audio_data" not in message or message["audio_data"] is None 
+            else {"role": message["role"], "content": "|some audio|"} 
+            for message in messages
+        ]
 
-        to_prepend = force_prepend or ""
-        if not content.startswith(to_prepend):
-            content = to_prepend + content
-        
-        if parse_json:
-            # Prevent back_off if parsing is failing
-            retry_state["back_off"] = False
-            parsed_content = extract_json_from_completion(content)
-            if parsed_content in ['""', "{}", ''] and crash_on_refusal:
-                raise Exception(f"No JSON found in the response: {content}. The request was: {messages} and the model used was: {gi.model}")
-            # Re-enable back_off after successful parsing
-            retry_state["back_off"] = True
-            content = parsed_content
+        if crash_on_empty_response and \
+            ((type(content) == str and content.strip() == "") or \
+            (type(content) == AudioData and len(content.audio_ids) == 0)):
             
-        child = ChatNode(content=content, role="assistant")
-        
+            raise Exception(f"No content returned by the model. The request was: {clean_messages_for_debug} and the model used was: {gi.model}")
+
+        if type(content) == str:
+            to_prepend = force_prepend or ""
+            if not content.startswith(to_prepend):
+                content = to_prepend + content
+            
+            if parse_json:
+                # Prevent back_off if parsing is failing
+                retry_state["back_off"] = False
+                parsed_content = extract_json_from_completion(content)
+                if parsed_content in ['""', "{}", ''] and crash_on_refusal:
+                    raise Exception(f"No JSON found in the response: {content}. The request was: {clean_messages_for_debug} and the model used was: {gi.model}")
+                # Re-enable back_off after successful parsing
+                retry_state["back_off"] = True
+                content = parsed_content
+                
+            child = ChatNode(content=content, role="assistant")
+        elif type(content) == AudioData:
+
+            to_prepend = force_prepend or ""
+
+            child = ChatNode(
+                audio_data=content, 
+                role="assistant"
+            )
+
+            if len(to_prepend):
+                prepend = ChatNode(
+                    content=to_prepend,
+                    role="assistant"
+                )
+                prepend.add_child(child)
+        else:
+            raise ValueError(f"Unsupported content type: {type(content)}")
+
         if add_child:
             self.add_child(child)
             
@@ -408,11 +511,12 @@ class ChatNode:
         This is entirely synchronous and avoids any async/event loop operations.
         """
         # Prepare all the parameters
-        gi, params, messages, api, complete_from = self._prepare_completion(completion_params, use_async=False)
+        gi, params, messages, api = self._prepare_completion(completion_params, use_async=False)
         
         # Get the appropriate synchronous completion method
         complete_method = {
             "openai": self.__chat_complete_openai,
+            "openai-audio": self.__chat_complete_openai_audio,
             "anthropic": self.__chat_complete_anthropic,
             "mistralai": self.__chat_complete_mistralai,
             "together": self.__chat_complete_together,
@@ -423,15 +527,12 @@ class ChatNode:
         # Loop for retries
         retry = params["retry"]
         back_off_time = params["back_off_time"]
-        exp_back_off = params["exp_back_off"]
-        max_back_off = params["max_back_off"]
-        force_prepend = params["force_prepend"]
         
         content = ""
         retry_state = {"back_off": True}
         while retry:
             try:
-                content = complete_method(gi, messages, api, force_prepend)
+                content = complete_method(gi, messages, api, params["force_prepend"])
                 # Process and return the result
                 child = self._process_completion_result(content, params, messages, gi, retry_state)
                 return child
@@ -443,8 +544,8 @@ class ChatNode:
                 retry -= 1
                 if retry_state["back_off"]:
                     time.sleep(back_off_time)
-                    if exp_back_off:
-                        back_off_time = min(back_off_time * 2, max_back_off)
+                    if params["exp_back_off"]:
+                        back_off_time = min(back_off_time * 2, params["max_back_off"])
                 else:
                     retry_state["back_off"] = True
         
@@ -458,7 +559,7 @@ class ChatNode:
         Fully asynchronous version that uses the correct async completion method.
         """
         # Prepare all the parameters
-        gi, params, messages, api, complete_from = self._prepare_completion(completion_params, use_async=True)
+        gi, params, messages, api = self._prepare_completion(completion_params, use_async=True)
         
         # Check for HuggingFace - which doesn't support async
         if gi._format == "hf":
@@ -467,6 +568,7 @@ class ChatNode:
         # Get the appropriate async completion method
         complete_method = {
             "openai": self.__chat_complete_openai_async,
+            "openai-audio": self.__chat_complete_openai_audio_async,
             "anthropic": self.__chat_complete_anthropic_async,
             "mistralai": self.__chat_complete_mistralai_async,
             "together": self.__chat_complete_together_async,
@@ -476,15 +578,12 @@ class ChatNode:
         # Loop for retries
         retry = params["retry"]
         back_off_time = params["back_off_time"]
-        exp_back_off = params["exp_back_off"]
-        max_back_off = params["max_back_off"]
-        force_prepend = params["force_prepend"]
         
         content = ""
         retry_state = {"back_off": True}
         while retry:
             try:
-                content = await complete_method(gi, messages, api, force_prepend)
+                content = await complete_method(gi, messages, api, params["force_prepend"])
                 # Process and return the result
                 child = self._process_completion_result(content, params, messages, gi, retry_state)
                 return child
@@ -496,8 +595,8 @@ class ChatNode:
                 retry -= 1
                 if retry_state["back_off"]:
                     await asyncio.sleep(back_off_time)
-                    if exp_back_off:
-                        back_off_time = min(back_off_time * 2, max_back_off)
+                    if params["exp_back_off"]:
+                        back_off_time = min(back_off_time * 2, params["max_back_off"])
                 else:
                     retry_state["back_off"] = True
                     
@@ -560,6 +659,76 @@ class ChatNode:
     ) -> str:
         response: ChatCompletion = await api.chat.completions.create(**get_payload(gi, messages))
         return response.choices[0].message.content
+
+    def __chat_complete_openai_audio(self,
+        gi: GeneratorInfo,
+        messages: List[Dict[str, Any]],
+        api: OpenAI,
+        *_1, **_2
+    ) -> AudioData | str:
+        response: ChatCompletion = api.chat.completions.create(
+            **get_payload(gi, messages), 
+            modalities=["text", "audio"],
+            audio={
+                "format": "pcm16",
+                "voice": gi.completion_parameters.voice
+            }
+        )
+        if response.choices[0].message.audio is None:
+            return response.choices[0].message.content
+        else:
+            audio = response.choices[0].message.audio
+            # First process the audio data and generate a temp file
+            audio_file = base64_to_wav(
+                base64_data=audio.data,
+                output_folder=gi.completion_parameters.audio_output_folder
+            )
+
+            return AudioData(
+                audio_paths=[audio_file],
+                audio_ids={
+                    audio.id: {
+                        "transcript": audio.transcript,
+                        "expires_at": audio.expires_at
+                    }
+                },
+                audio_raw=audio.data
+            )
+
+    async def __chat_complete_openai_audio_async(self,
+        gi: GeneratorInfo,
+        messages: List[Dict[str, Any]],
+        api: AsyncOpenAI,
+        *_1, **_2
+    ) -> AudioData | str:
+        response: ChatCompletion = await api.chat.completions.create(
+            **get_payload(gi, messages), 
+            modalities=["text", "audio"],
+            audio={
+                "format": "pcm16",
+                "voice": gi.completion_parameters.voice
+            }
+        )
+        if response.choices[0].message.audio is None:
+            return response.choices[0].message.content
+        else:
+            audio = response.choices[0].message.audio
+            # First process the audio data and generate a temp file
+            audio_file = base64_to_wav(
+                base64_data=audio.data,
+                output_folder=gi.completion_parameters.audio_output_folder
+            )
+
+            return AudioData(
+                audio_paths=[audio_file],
+                audio_ids={
+                    audio.id: {
+                        "transcript": audio.transcript,
+                        "expires_at": audio.expires_at
+                    }
+                },
+                audio_raw=audio.data
+            )
 
     def __chat_complete_anthropic(self,
         gi: GeneratorInfo,
@@ -830,6 +999,10 @@ class ChatNode:
             current_node = ChatNode(
                 content=prompt["content"],
                 role=prompt["role"],
+                audio_data=AudioData(
+                    audio_paths=prompt["audio_data"]["audio_paths"] if "audio_paths" in prompt["audio_data"] else [],
+                    audio_ids=prompt["audio_data"]["audio_ids"] if "audio_ids" in prompt["audio_data"] else {}
+                ) if "audio_data" in prompt and prompt["audio_data"] is not None else None,
                 format_kwargs=data["required_kwargs"],
             )
 

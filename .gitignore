@@ -41,3 +41,5 @@ ENV/
 .DS_Store
 Thumbs.db
 .env
+audio/*
+test_save_audio.json
