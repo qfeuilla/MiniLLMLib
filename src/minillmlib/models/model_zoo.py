@@ -70,21 +70,24 @@ openai_audio = {
 }
 
 openrouter = {}
-for model_name, uri in [
-    ("hermes-405b", "nousresearch/hermes-3-llama-3.1-405b"),
-    ("deepseek-v3", "deepseek/deepseek-chat"),
-    ("mistral-7b-instruct", "mistralai/mistral-7b-instruct")
+for model_name, uri, providers in [
+    ("hermes-405b", "nousresearch/hermes-3-llama-3.1-405b", None),
+    ("deepseek-v3", "deepseek/deepseek-chat", ['Fireworks', 'NovitAI', 'Together', 'DeepInfra']),
+    ("mistral-7b-instruct", "mistralai/mistral-7b-instruct", None)
 ]:
+    provider_settings = { "data_collection": "deny"}
+    if providers is not None:
+        provider_settings["order"] = providers
+    else:
+        provider_settings["sort"] = "throughput"
+
     openrouter[model_name] = GeneratorInfo(
         model=uri,
         _format="url",
         api_url=f"https://openrouter.ai/api/v1/chat/completions",
         api_key=os.getenv("OPENROUTER_API_KEY"),
         completion_parameters=GeneratorCompletionParameters(
-            provider={
-                "data_collection": "deny",
-                "sort": "throughput"
-            }
+            provider=provider_settings
         )
     )
 
