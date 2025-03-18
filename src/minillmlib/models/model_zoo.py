@@ -72,7 +72,7 @@ openai_audio = {
 openrouter = {}
 for model_name, uri, providers in [
     ("hermes-405b", "nousresearch/hermes-3-llama-3.1-405b", None),
-    ("deepseek-v3", "deepseek/deepseek-chat", ['Fireworks', 'NovitAI', 'Together', 'DeepInfra']),
+    ("deepseek-v3", "deepseek/deepseek-chat", ['Fireworks', 'Novita', 'Together', 'DeepInfra']),
     ("mistral-7b-instruct", "mistralai/mistral-7b-instruct", None)
 ]:
     provider_settings = { "data_collection": "deny"}
