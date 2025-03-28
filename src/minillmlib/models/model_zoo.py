@@ -16,6 +16,7 @@ for model_name in [
     "claude-3-5-haiku-20241022",
     "claude-3-5-sonnet-20241022",
     "claude-3-5-sonnet-20240620",
+    "claude-3-7-sonnet-20250219"
 ]:
     anthropic[model_name] = GeneratorInfo(
         model=model_name,
