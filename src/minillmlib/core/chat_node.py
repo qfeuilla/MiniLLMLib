@@ -955,17 +955,50 @@ class ChatNode:
     
     @classmethod
     def from_thread(cls, 
-        path: str | List[str]
+        path: str | List[str] | None = None,
+        messages: List[Dict[str, str]] | None = None
     ) -> ChatNode:
-        """Load a thread from a JSON file or multiple JSON files.
+        """Load a thread from a JSON file or multiple JSON files, or directly from messages.
         
         Args:
             path: Path to a JSON file or list of paths to JSON files.
                  If a list is provided, the threads will be merged in order.
+            messages: List of message dictionaries in the format:
+                     [{"role": "user", "content": "message"}, ...].
+                     This is compatible with the output of get_messages().
         
         Returns:
             The root node of the loaded thread
+            
+        Raises:
+            ValueError: If both path and messages are None, or if path is an empty list
         """
+        if path is None and messages is None:
+            raise ValueError("Either path or messages must be provided")
+            
+        if messages is not None:
+            parent = None
+            for msg in messages:
+                assert (
+                    "role" in msg and "content" in msg
+                ), "Each message must have a role and a content"
+                assert msg["role"] in [
+                    "user",
+                    "assistant",
+                    "system",
+                ], "role must be one of 'user', 'assistant', 'system'"
+
+                current_node = ChatNode(
+                    content=msg["content"],
+                    role=msg["role"],
+                )
+
+                if parent is None:
+                    parent = current_node
+                else:
+                    parent = parent.add_child(current_node)
+            return parent
+
         if isinstance(path, list):
             if not path:
                 raise ValueError("Empty list of paths provided")
