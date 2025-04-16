@@ -73,7 +73,7 @@ openai_audio = {
 openrouter = {}
 for model_name, uri, providers in [
     ("hermes-405b", "nousresearch/hermes-3-llama-3.1-405b", None),
-    ("deepseek-v3", "deepseek/deepseek-chat", ['Fireworks', 'Novita', 'Together', 'DeepInfra']),
+    ("deepseek-v3", "deepseek/deepseek-chat", None),
     ("deepseek-v3-0324", "deepseek/deepseek-chat-v3-0324", ["SambaNova", "Parasail", "Novita", "DeepInfra"]),
     ("mistral-7b-instruct", "mistralai/mistral-7b-instruct", None),
     ("claude-3.7-sonnet", "anthropic/claude-3.7-sonnet", None)

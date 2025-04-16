@@ -15,7 +15,6 @@ setup(
         "anthropic",
         "mistralai",
         "together",
-        "colorama",
         "requests",
         "httpx",
         "python-dotenv",

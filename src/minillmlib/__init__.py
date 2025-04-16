@@ -25,6 +25,8 @@ from .models.model_zoo import (
     openai_audio
 )
 
+from .utils.logging_utils import get_logger, configure_logger
+
 __all__ = [
     'ChatNode',
     'GeneratorInfo',
@@ -43,5 +45,7 @@ __all__ = [
     'AudioData',
     'process_audio_for_completion',
     'base64_to_wav',
-    'base64_to_temp_audio_file'
+    'base64_to_temp_audio_file',
+    'get_logger',
+    'configure_logger'
 ]

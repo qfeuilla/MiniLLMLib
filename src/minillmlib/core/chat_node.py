@@ -8,12 +8,11 @@ import time
 import warnings
 from copy import deepcopy
 from typing import Any, Dict, List, Optional, Tuple
-
+import json
 import httpx
 import requests
 from anthropic import Anthropic, AsyncAnthropic
 from anthropic.types.message import Message
-from colorama import Fore
 from mistralai import Mistral
 from openai import AsyncOpenAI, OpenAI
 from openai.types.chat import ChatCompletion
@@ -27,8 +26,11 @@ from ..utils.message_utils import (NodeCompletionParameters, base64_to_wav,
                                    hf_process_messages,
                                    merge_contiguous_messages,
                                    process_audio_for_completion, AudioData)
+from ..utils.logging_utils import get_logger
 
 warnings.filterwarnings("ignore", message=".*verification is strongly advised.*")
+
+logger = get_logger()
 
 def _initialize_api(api_class, env_key: str, async_api_class=None):
     try:
@@ -37,7 +39,11 @@ def _initialize_api(api_class, env_key: str, async_api_class=None):
         async_client = async_api_class(api_key=api_key) if api_key and async_api_class else None
         return sync_client, async_client
     except Exception as e:
-        print(f"{Fore.YELLOW}Warning: Failed to initialize {api_class.__name__}: {e}{Fore.RESET}")
+        logger.warning({
+            "message": "Failed to initialize API",
+            "api": api_class.__name__,
+            "error": str(e)
+        })
         return None, None
 
 # Initialize API clients
@@ -121,7 +127,11 @@ class ChatNode:
                 if key not in root.format_kwargs:
                     root.format_kwargs[key] = child.format_kwargs[key]
                 else:
-                    print(f"{Fore.YELLOW}Caution:{Fore.RESET} format_kwargs key {key} already exists in the root of the tree. After loading, only one will be used.")
+                    logger.warning({
+                        "message": "Format kwargs key collision",
+                        "key": key,
+                        "detail": "Key already exists in the root of the tree. After loading, only one will be used."
+                    })
 
         return child
 
@@ -153,7 +163,12 @@ class ChatNode:
                 try:
                     content = format_prompt(current.content, **current.format_kwargs)
                 except Exception as e:
-                    print(f"{Fore.YELLOW}Error while formatting the content (formatting skipped){Fore.RESET}: {current.content}: {e}")
+                    logger.warning({
+                        "message": "Error formatting content",
+                        "content": current.content,
+                        "error": str(e),
+                        "detail": "Formatting skipped"
+                    })
                     content = current.content
             else:
                 # Check if audio paths are valid
@@ -473,7 +488,7 @@ class ChatNode:
                 # Prevent back_off if parsing is failing
                 retry_state["back_off"] = False
                 parsed_content = extract_json_from_completion(content)
-                if parsed_content in ['""', "{}", ''] and crash_on_refusal:
+                if parsed_content in ['""', '{}', ''] and crash_on_refusal:
                     raise Exception(f"No JSON found in the response: {content}. The request was: {clean_messages_for_debug} and the model used was: {gi.model}")
                 # Re-enable back_off after successful parsing
                 retry_state["back_off"] = True
@@ -537,8 +552,13 @@ class ChatNode:
                 child = self._process_completion_result(content, params, messages, gi, retry_state)
                 return child
             except Exception as e:
-                print(f"{Fore.RED}Error: {Fore.RESET}{e}")
-                print("AI content: ", content)
+                logger.error({
+                    "error_type": e.__class__.__name__,
+                    "error_message": str(e),
+                    "error_args": getattr(e, 'args', []),
+                    "content": content
+                })
+                
                 if retry <= 1:
                     raise e
                 retry -= 1
@@ -588,8 +608,13 @@ class ChatNode:
                 child = self._process_completion_result(content, params, messages, gi, retry_state)
                 return child
             except Exception as e:
-                print(f"{Fore.RED}Error: {Fore.RESET}{e}")
-                print("AI content: ", content)
+                logger.error({
+                    "error_type": e.__class__.__name__,
+                    "error_message": str(e),
+                    "error_args": getattr(e, 'args', []),
+                    "content": content
+                })
+                
                 if retry <= 1:
                     raise e
                 retry -= 1
@@ -823,15 +848,9 @@ class ChatNode:
             json={**get_payload(gi, messages)},
             verify=False
         )
-        try:
-            response = response.json()
-        except Exception as e:
-            raise Exception(f"{Fore.RED}Error: {Fore.RESET} {e} \n Response: {response}")
+        response_json = response.json()
 
-        if "choices" not in response:
-            raise Exception(f"{Fore.RED}Error: {Fore.RESET} {response}")
-
-        return response["choices"][0]["message"]["content"]
+        return validate_json_response(response_json)
     
     async def __chat_complete_url_async(self,
         gi: GeneratorInfo,
@@ -841,22 +860,26 @@ class ChatNode:
     ) -> str:
         headers = {"Authorization": f"Bearer {gi.api_key}"}
 
-        response = {}
+        response = None
         async with httpx.AsyncClient(verify=False) as client:
             try:
-                response = (await client.post(
+                response = await client.post(
                     api_url,
                     headers=headers,
                     json={**get_payload(gi, messages)}
-                ))
-                response = response.json()
+                )
+                response_json = response.json()
             except Exception as e:
-                raise Exception(f"{Fore.RED}Error: {Fore.RESET} {e} \n Response: {response}")
+                error_details = {
+                    "status_code": response.status_code if response else None,
+                    "response_text": response.text if response else None,
+                    "response_headers": dict(response.headers) if response else None,
+                    "url": api_url
+                }
+                logger.error(error_details)
+                raise e
 
-        if "choices" not in response:
-            raise Exception(f"{Fore.RED}Error: {Fore.RESET} {response}")
-
-        return response["choices"][0]["message"]["content"]
+        return validate_json_response(response_json)
 
     def __chat_complete_hf(self,
         gi: GeneratorInfo,
