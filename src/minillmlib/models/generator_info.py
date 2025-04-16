@@ -66,7 +66,7 @@ class GeneratorInfo:
     # API
     api_url: Optional[str] = None
     api_key: Optional[str] = None
-    _format: Literal["openai", "openai-audio", "anthropic", "url", "mistralai", "hf", "together", "prettify"] = "openai"
+    _format: Literal["openai", "openai-audio", "anthropic", "url", "mistralai", "hf", "together", "prettify"] = "url"
     force_merge: bool = False
     enforce_json_compatible_prompt: bool = False
     no_system: bool = False
@@ -113,6 +113,8 @@ class GeneratorInfo:
             self.hf_tokenizer = AutoTokenizer.from_pretrained(self.model)
             if self.hf_tokenizer.pad_token_id is None:
                 self.hf_tokenizer.pad_token_id = self.hf_tokenizer.eos_token_id
+
+    
 
     def __eq__(self, 
         value: 'GeneratorInfo'
