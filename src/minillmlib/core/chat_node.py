@@ -25,7 +25,7 @@ from ..utils.message_utils import (NodeCompletionParameters, base64_to_wav,
                                    format_prompt, get_payload,
                                    hf_process_messages,
                                    merge_contiguous_messages,
-                                   process_audio_for_completion, AudioData)
+                                   process_audio_for_completion, AudioData, validate_json_response)
 from ..utils.logging_utils import get_logger
 
 warnings.filterwarnings("ignore", message=".*verification is strongly advised.*")
