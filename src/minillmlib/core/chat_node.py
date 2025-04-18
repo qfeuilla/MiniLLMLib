@@ -553,7 +553,7 @@ class ChatNode:
                 child = self._process_completion_result(content, params, messages, gi, retry_state)
                 return child
             except Exception as e:
-                logger.error({
+                logger.debug({
                     "error_type": e.__class__.__name__,
                     "error_message": str(e),
                     "error_args": getattr(e, 'args', []),
@@ -609,7 +609,7 @@ class ChatNode:
                 child = self._process_completion_result(content, params, messages, gi, retry_state)
                 return child
             except Exception as e:
-                logger.error({
+                logger.debug({
                     "error_type": e.__class__.__name__,
                     "error_message": str(e),
                     "error_args": getattr(e, 'args', []),
@@ -867,23 +867,35 @@ class ChatNode:
         headers = {"Authorization": f"Bearer {gi.api_key}"}
 
         response = None
-        async with httpx.AsyncClient(transport=transport, verify=False, timeout=timeout) as client:
-            try:
+        try:
+            async with httpx.AsyncClient(transport=transport, verify=False, timeout=timeout) as client:
                 response = await client.post(
                     api_url,
                     headers=headers,
                     json={**get_payload(gi, messages)},
                 )
                 response_json = response.json()
-            except Exception as e:
-                error_details = {
-                    "status_code": response.status_code if response else None,
-                    "response_text": response.text if response else None,
-                    "response_headers": dict(response.headers) if response else None,
-                    "url": api_url
-                }
-                logger.error(error_details)
-                raise e
+        except httpx.ConnectTimeout as e:
+            logger.debug(f"ConnectTimeout: {e}")
+            raise
+        except httpx.ReadTimeout as e:
+            logger.debug(f"ReadTimeout: {e}")
+            raise
+        except httpx.ConnectError as e:
+            logger.debug(f"ConnectError: {e}")
+            raise
+        except httpx.ReadError as e:
+            logger.debug(f"ReadError: {e}")
+            raise
+        except Exception as e:
+            error_details = {
+                "status_code": response.status_code if response else None,
+                "response_text": response.text if response else None,
+                "response_headers": dict(response.headers) if response else None,
+                "url": api_url
+            }
+            logger.error(error_details)
+            raise e
 
         return validate_json_response(response_json)
 
