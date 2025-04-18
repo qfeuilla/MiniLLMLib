@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+from socket import timeout
 import time
 import warnings
 from copy import deepcopy
@@ -866,7 +867,8 @@ class ChatNode:
                 response = await client.post(
                     api_url,
                     headers=headers,
-                    json={**get_payload(gi, messages)}
+                    json={**get_payload(gi, messages)},
+                    timeout=30
                 )
                 response_json = response.json()
             except Exception as e:
