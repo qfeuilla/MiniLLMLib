@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-from httpx_retries import Retry, RetryTransport
 import os
 import time
 import warnings
@@ -860,15 +859,13 @@ class ChatNode:
         *_1, **_2
     ) -> str:
 
-        retry = Retry(total=2, backoff_factor=0.5)
-        transport = RetryTransport(retry=retry)
-        timeout = httpx.Timeout(60.0, connect=60.0, read=60.0)
+        timeout = httpx.Timeout(connect=15.0, read=30.0)
 
         headers = {"Authorization": f"Bearer {gi.api_key}"}
 
         response = None
         try:
-            async with httpx.AsyncClient(transport=transport, verify=False, timeout=timeout) as client:
+            async with httpx.AsyncClient(verify=False, timeout=timeout) as client:
                 response = await client.post(
                     api_url,
                     headers=headers,
