@@ -20,7 +20,8 @@ setup(
         "python-dotenv",
         "json_repair",
         "pydub",
-        "numpy==1.26.4"
+        "numpy==1.26.4",
+        "httpx-retries"
     ],
     extras_require={
         "huggingface": [

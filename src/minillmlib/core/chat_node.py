@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+from httpx_retries import Retry, RetryTransport
 import os
-from socket import timeout
 import time
 import warnings
 from copy import deepcopy
@@ -164,7 +164,7 @@ class ChatNode:
                 try:
                     content = format_prompt(current.content, **current.format_kwargs)
                 except Exception as e:
-                    logger.warning({
+                    logger.debug({
                         "message": "Error formatting content",
                         "content": current.content,
                         "error": str(e),
@@ -859,16 +859,20 @@ class ChatNode:
         api_url: str,
         *_1, **_2
     ) -> str:
+
+        retry = Retry(total=2, backoff_factor=0.5)
+        transport = RetryTransport(retry=retry)
+        timeout = httpx.Timeout(60.0, connect=60.0, read=60.0)
+
         headers = {"Authorization": f"Bearer {gi.api_key}"}
 
         response = None
-        async with httpx.AsyncClient(verify=False) as client:
+        async with httpx.AsyncClient(transport=transport, verify=False, timeout=timeout) as client:
             try:
                 response = await client.post(
                     api_url,
                     headers=headers,
                     json={**get_payload(gi, messages)},
-                    timeout=30
                 )
                 response_json = response.json()
             except Exception as e:
