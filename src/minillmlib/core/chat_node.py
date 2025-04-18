@@ -859,13 +859,22 @@ class ChatNode:
         *_1, **_2
     ) -> str:
 
-        timeout = httpx.Timeout(connect=15.0, read=30.0)
+        timeout = httpx.Timeout(
+            timeout=60, 
+            connect=25.0, 
+            read=50.0
+        )
+        limits = httpx.Limits(
+            max_keepalive_connections=100, 
+            max_keepalive_connections=300, 
+            keepalive_expiry=30
+        )
 
         headers = {"Authorization": f"Bearer {gi.api_key}"}
 
         response = None
         try:
-            async with httpx.AsyncClient(verify=False, timeout=timeout) as client:
+            async with httpx.AsyncClient(verify=False, timeout=timeout, limits=limits) as client:
                 response = await client.post(
                     api_url,
                     headers=headers,
