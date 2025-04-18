@@ -866,7 +866,7 @@ class ChatNode:
         )
         limits = httpx.Limits(
             max_keepalive_connections=100, 
-            max_keepalive_connections=300, 
+            max_connections=300, 
             keepalive_expiry=30
         )
 
