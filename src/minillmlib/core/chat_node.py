@@ -860,13 +860,14 @@ class ChatNode:
     ) -> str:
 
         timeout = httpx.Timeout(
-            timeout=60, 
-            connect=25.0, 
-            read=50.0
+            connect=10.0, 
+            read=120.0,
+            write=10.0,
+            pool=10.0
         )
         limits = httpx.Limits(
-            max_keepalive_connections=100, 
-            max_connections=300, 
+            max_keepalive_connections=20, 
+            max_connections=20, 
             keepalive_expiry=30
         )
 
