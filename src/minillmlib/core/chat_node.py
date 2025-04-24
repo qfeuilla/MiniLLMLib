@@ -861,7 +861,7 @@ class ChatNode:
 
         timeout = httpx.Timeout(
             connect=10.0, 
-            read=120.0,
+            read=360.0,
             write=10.0,
             pool=10.0
         )
