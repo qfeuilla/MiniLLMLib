@@ -385,16 +385,16 @@ def base64_to_wav(base64_data: str, output_folder: Optional[str] = None, **kwarg
 
 def validate_json_response(response_json: Dict[str, Any]) -> Dict[str, Any]:
     if "choices" not in response_json:
-        raise Exception(f"Error: missing 'choices' key in response json")
+        raise Exception(f"Error: missing 'choices' key in response json: {response_json}")
     
     if type(response_json["choices"]) != list:
-        raise Exception(f"Error: 'choices' key in response json must be a list")
+        raise Exception(f"Error: 'choices' key in response json must be a list: {response_json}")
 
     if "message" not in response_json["choices"][0]:
-        raise Exception(f"Error: missing 'message' key in response json")
+        raise Exception(f"Error: missing 'message' key in response json: {response_json}")
 
     if "content" not in response_json["choices"][0]["message"]:
-        raise Exception(f"Error: missing 'content' key in response json")
+        raise Exception(f"Error: missing 'content' key in response json: {response_json}")
 
     return response_json["choices"][0]["message"]["content"]
 
