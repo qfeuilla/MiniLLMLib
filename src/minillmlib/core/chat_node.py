@@ -480,7 +480,7 @@ class ChatNode:
             raise Exception(f"No content returned by the model. The request was: {clean_messages_for_debug} and the model used was: {gi.model}")
 
         if type(content) == str:
-            to_prepend = force_prepend or ""
+            to_prepend = force_prepend.format() if force_prepend is not None else ""
             if not content.startswith(to_prepend):
                 content = to_prepend + content
             
@@ -497,7 +497,7 @@ class ChatNode:
             child = ChatNode(content=content, role="assistant")
         elif type(content) == AudioData:
 
-            to_prepend = force_prepend or ""
+            to_prepend = force_prepend.format() if force_prepend is not None else ""
 
             child = ChatNode(
                 audio_data=content, 
