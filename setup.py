@@ -21,6 +21,7 @@ setup(
         "json_repair",
         "pydub",
         "numpy==1.26.4",
+        "pymongo"
     ],
     extras_require={
         "huggingface": [

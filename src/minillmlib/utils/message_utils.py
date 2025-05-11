@@ -13,6 +13,7 @@ from pydub import AudioSegment
 from ..models.generator_info import (GeneratorCompletionParameters,
                                      GeneratorInfo)
 
+
 @dataclass
 class AudioData:
     audio_paths: List[str] = field(default_factory=list)
@@ -383,7 +384,7 @@ def base64_to_wav(base64_data: str, output_folder: Optional[str] = None, **kwarg
     result = base64_to_temp_audio_file(base64_data, file_format="wav", output_folder=output_folder, **kwargs)
     return result["file_path"]
 
-def validate_json_response(response_json: Dict[str, Any]) -> Dict[str, Any]:
+def validate_json_response(response_json: Dict[str, Any]) -> str:
     if "choices" not in response_json:
         raise Exception(f"Error: missing 'choices' key in response json: {response_json}")
     

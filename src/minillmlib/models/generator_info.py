@@ -2,6 +2,8 @@
 from dataclasses import MISSING, dataclass, field, fields
 from typing import Any, Dict, Literal, Optional, Tuple
 
+from pymongo.collection import Collection
+
 HUGGINGFACE_ACTIVATED = False
 try:
     import torch
@@ -78,6 +80,13 @@ class GeneratorInfo:
     is_uncensored: bool = False
     translation_table: Dict[str, str] = field(default_factory=dict) # Used to translate the role titles sent to the chatbot. See pretty_messages
     
+    # Usage tracking related
+    usage_tracking_type: str | None = None
+    usage_db: Collection | None = None
+    usage_id_key: str | None = None
+    usage_id_value: str | None = None
+    usage_key: str | None = None
+
     # HuggingFace
     hf_model_kwargs: Dict[str, Any] = field(default_factory=dict)
     hf_process_kwargs: Dict[str, Any] = field(default_factory=dict)
@@ -113,8 +122,6 @@ class GeneratorInfo:
             self.hf_tokenizer = AutoTokenizer.from_pretrained(self.model)
             if self.hf_tokenizer.pad_token_id is None:
                 self.hf_tokenizer.pad_token_id = self.hf_tokenizer.eos_token_id
-
-    
 
     def __eq__(self, 
         value: 'GeneratorInfo'

@@ -8,7 +8,7 @@ import time
 import warnings
 from copy import deepcopy
 from typing import Any, Dict, List, Optional, Tuple
-import json
+
 import httpx
 import requests
 from anthropic import Anthropic, AsyncAnthropic
@@ -21,12 +21,13 @@ from together import AsyncTogether, Together
 from ..models.generator_info import (HUGGINGFACE_ACTIVATED, GeneratorInfo,
                                      pretty_messages, torch)
 from ..utils.json_utils import extract_json_from_completion, to_dict
-from ..utils.message_utils import (NodeCompletionParameters, base64_to_wav,
-                                   format_prompt, get_payload,
+from ..utils.logging_utils import get_logger
+from ..utils.message_utils import (AudioData, NodeCompletionParameters,
+                                   base64_to_wav, format_prompt, get_payload,
                                    hf_process_messages,
                                    merge_contiguous_messages,
-                                   process_audio_for_completion, AudioData, validate_json_response)
-from ..utils.logging_utils import get_logger
+                                   process_audio_for_completion,
+                                   validate_json_response)
 
 warnings.filterwarnings("ignore", message=".*verification is strongly advised.*")
 
@@ -667,6 +668,16 @@ class ChatNode:
         children = await asyncio.gather(*tasks)
         return children if len(children) > 1 else children[0]
 
+    def handle_cost(self,
+        gi: GeneratorInfo,
+        cost: float
+    ):
+        if gi.usage_tracking_type == "openrouter" and None not in [gi.usage_db, gi.usage_id_key, gi.usage_id_value, gi.usage_key]:
+            gi.usage_db.update_one(
+                {gi.usage_id_key: gi.usage_id_value},
+                {"$inc": {gi.usage_key: cost}},
+            )
+
     def __chat_complete_openai(self,
         gi: GeneratorInfo,
         messages: List[Dict[str, str]],
@@ -850,6 +861,9 @@ class ChatNode:
         )
         response_json = response.json()
 
+        if gi.usage_tracking_type is not None:
+            self.handle_cost(gi, response_json["usage"]["cost"])
+
         return validate_json_response(response_json)
     
     async def __chat_complete_url_async(self,
@@ -903,6 +917,9 @@ class ChatNode:
             }
             logger.error(error_details)
             raise e
+
+        if gi.usage_tracking_type is not None:
+            self.handle_cost(gi, response_json["usage"]["cost"])
 
         return validate_json_response(response_json)
 
