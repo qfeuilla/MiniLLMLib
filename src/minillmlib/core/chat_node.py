@@ -389,7 +389,7 @@ class ChatNode:
         
         # deepcopy the gi to avoid modifying the original
         # TODO: This might not be the best idea for local LLMs, I need to find a way to handle them properly without having to clone the weights
-        gi = deepcopy(gi)
+        gi = gi.deepcopy()
 
         # Apply generation parameters if provided
         # NOTE (design choice): the kwargs here are added to the ones in the gi.completion_parameters, and overwrite them if they are already set

@@ -161,6 +161,18 @@ class GeneratorInfo:
             self.deactivate_temperature,
             self.enforce_json_compatible_prompt
         ))
+    
+    def deepcopy(self) -> GeneratorInfo:
+        
+        usage_db = self.usage_db
+        self.usage_db = None
+        
+        new_instance = deepcopy(self)
+
+        self.usage_db = usage_db
+        new_instance.usage_db = usage_db
+        
+        return new_instance
 
 pretty_messages = GeneratorInfo(
     model=None,
