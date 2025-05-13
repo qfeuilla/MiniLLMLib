@@ -1,7 +1,9 @@
 """Generator information and model configurations for MiniLLMLib."""
+from __future__ import annotations
+
 from dataclasses import MISSING, dataclass, field, fields
 from typing import Any, Dict, Literal, Optional, Tuple
-
+from copy import deepcopy
 from pymongo.collection import Collection
 
 HUGGINGFACE_ACTIVATED = False
