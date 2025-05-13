@@ -489,7 +489,7 @@ class ChatNode:
                 # Prevent back_off if parsing is failing
                 retry_state["back_off"] = False
 
-                if crash_on_refusal and ("{" not in content or "[" not in content):
+                if crash_on_refusal and ("{" not in content and "[" not in content):
                     raise Exception(f"No JSON found in the response: {content}. The request was: {clean_messages_for_debug} and the model used was: {gi.model}")
                 
                 parsed_content = extract_json_from_completion(content)
