@@ -18,7 +18,7 @@ print(response.content)
 # Installation
 
 ```bash
-# (Recommended) Install from PyPI (coming soon)
+# (Recommended) Install from PyPI
 pip install minillmlib
 
 # Or install from source

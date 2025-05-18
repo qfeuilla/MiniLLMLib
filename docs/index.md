@@ -27,7 +27,7 @@ Minimalist Python library for flexible, multi-provider LLM interaction.
 
 ---
 
-[GitHub Repo](https://github.com/qfeuilla/MiniLLMLib) · [PyPI (coming soon)]()
+[GitHub Repo](https://github.com/qfeuilla/MiniLLMLib) · [PyPI](https://pypi.org/project/minillmlib/)
 
 ```{toctree}
 :maxdepth: 2
