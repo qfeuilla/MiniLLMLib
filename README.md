@@ -10,6 +10,18 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python](https://img.shields.io/pypi/pyversions/minillmlib.svg)](https://pypi.org/project/minillmlib/)
 
+---
+
+## Installation
+
+```bash
+pip install minillmlib
+# For HuggingFace/local models: (Beta - not well tested)
+pip install minillmlib[huggingface]
+```
+
+---
+
 A Python library for interacting with various LLM providers (OpenAI, Anthropic, Mistral, HuggingFace, through URL).
 
 Author: Quentin Feuillade--Montixi
