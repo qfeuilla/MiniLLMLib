@@ -1,5 +1,10 @@
 # MiniLLMLib
 
+[![GitHub stars](https://img.shields.io/github/stars/qfeuilla/MiniLLMLib?style=social)](https://github.com/qfeuilla/MiniLLMLib/stargazers)
+[![GitHub forks](https://img.shields.io/github/forks/qfeuilla/MiniLLMLib?style=social)](https://github.com/qfeuilla/MiniLLMLib/network/members)
+[![GitHub issues](https://img.shields.io/github/issues/qfeuilla/MiniLLMLib)](https://github.com/qfeuilla/MiniLLMLib/issues)
+[![GitHub last commit](https://img.shields.io/github/last-commit/qfeuilla/MiniLLMLib)](https://github.com/qfeuilla/MiniLLMLib/commits/main)
+
 [![PyPI version](https://img.shields.io/pypi/v/minillmlib.svg)](https://pypi.org/project/minillmlib/)
 [![Docs](https://readthedocs.org/projects/minillmlib/badge/?version=latest)](https://minillmlib.readthedocs.io/en/latest/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
