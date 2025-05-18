@@ -7,7 +7,7 @@ Minimalist Python library for flexible, multi-provider LLM interaction.
 **MiniLLMLib** enables advanced, provider-agnostic LLM workflows with a simple, extensible API. 
 
 - 🧩 Flexible chat node system: thread & loom (tree) conversations
-- 🔌 Supports OpenAI, Anthropic, Mistral, Together, HuggingFace, custom URLs
+- 🔌 Supports OpenAI, Anthropic, Mistral, HuggingFace, custom URLs
 - ⚡ Sync & async API, audio, JSON, advanced message formatting
 - 💾 Save/load conversations, cost tracking, CLI & frontend-ready
 - 🛠️ Easy model switching, parameter config, extensibility

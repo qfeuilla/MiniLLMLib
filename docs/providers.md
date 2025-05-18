@@ -9,7 +9,6 @@ MiniLLMLib supports a wide range of LLM providers and models out-of-the-box. You
 | OpenAI      | ✅   | ✅    | ✅    | ❌    | OPENAI_API_KEY | Most models, incl. audio   |
 | Anthropic   | ✅   | ✅    | ❌    | ❌    | ANTHROPIC_API_KEY | Claude family           |
 | MistralAI   | ✅   | ❌    | ❌    | ❌    | MISTRAL_API_KEY   |                           |
-| Together    | ✅   | ✅    | ❌    | ❌    | TOGETHER_API_KEY  |                           |
 | HuggingFace | ✅   | ❌    | ❌    | ✅    | (local)           | Install `[huggingface]`   |
 | Custom URL  | ✅   | ✅    | ❌    | ❌    | api_key param      | OpenAI-compatible APIs    |
 

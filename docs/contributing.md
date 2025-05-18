@@ -17,6 +17,7 @@ pytest tests/
 - Web UI
 - Improved docs
 - Implement "from_loom" in the ChatNode
+- Implement more database and usage tracking for other providers
 
 ---
 

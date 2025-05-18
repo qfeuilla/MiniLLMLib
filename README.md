@@ -1,6 +1,6 @@
 # MiniLLMLib
 
-A Python library for interacting with various LLM providers (OpenAI, Anthropic, Mistral, Together, HuggingFace, through URL).
+A Python library for interacting with various LLM providers (OpenAI, Anthropic, Mistral, HuggingFace, through URL).
 
 Author: Quentin Feuillade--Montixi
 
@@ -42,7 +42,7 @@ print(response.content)
 ## Features
 
 - Unified interface for major LLM providers:
-  - OpenAI, Anthropic, Mistral, Together, HuggingFace (local), custom URL (e.g. OpenRouter)
+  - OpenAI, Anthropic, Mistral, HuggingFace (local), custom URL (e.g. OpenRouter)
 - Thread (linear) and loom (tree/branching) conversation modes
 - Synchronous & asynchronous API
 - Audio completions (OpenAI audio models, beta)

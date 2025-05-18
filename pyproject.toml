@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "minillmlib"
+version = "0.1.0"
+description = "Minimalist Library for programming with LLMs"
+authors = [
+    { name = "Quentin Feuillade--Montixi" }
+]
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.12"
+dependencies = [
+    "openai==1.79.0",
+    "anthropic==0.51.0",
+    "mistralai==1.7.0",
+    "requests==2.32.3",
+    "httpx==0.28.1",
+    "python-dotenv==1.1.0",
+    "json_repair==0.44.1",
+    "pydub==0.25.1",
+    "pymongo==4.13.0"
+]
+
+[project.optional-dependencies]
+huggingface = [
+    "torch",
+    "transformers"
+]
+dev = [
+    "pytest==8.2.2"
+]
+
+[project.urls]
+Homepage = "https://github.com/qfeuilla/MiniLLMLib"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools]
+package-dir = { "" = "src" }

@@ -71,7 +71,7 @@ print(thread.content)  # Will it rain tomorrow?
 
 `GeneratorInfo` holds all configuration needed to interact with a model/provider:
 - Model name (e.g. "gpt-4", "claude-3-opus-20240229")
-- Provider format (e.g. "openai", "anthropic", "hf", "together")
+- Provider format (e.g. "openai", "anthropic", "hf", "url")
 - API keys and URLs
 - Default generation parameters
 
@@ -242,7 +242,7 @@ The `GeneratorInfo` class configures all model/provider and runtime options for 
 | `completion_parameters`      | GeneratorCompletionParameters | — | Default generation parameters (temperature, max_tokens, etc) |
 | `api_url`                    | str/None  | None        | Custom API endpoint (for custom providers) |
 | `api_key`                    | str/None  | None        | API key for the provider |
-| `_format`                    | str       | "url"      | Provider format: 'openai', 'openai-audio', 'anthropic', 'url', 'mistralai', 'hf', 'together', 'prettify' |
+| `_format`                    | str       | "url"      | Provider format: 'openai', 'openai-audio', 'anthropic', 'url', 'mistralai', 'hf', 'prettify' |
 | `force_merge`                | bool      | False       | Force merging of contiguous messages |
 | `enforce_json_compatible_prompt` | bool  | False       | Ensure prompt is JSON-compatible (rarely needed) |
 | `no_system`                  | bool      | False       | Treat all 'system' messages as 'user' |

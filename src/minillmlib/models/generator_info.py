@@ -69,7 +69,7 @@ class GeneratorInfo:
     # API
     api_url: Optional[str] = None
     api_key: Optional[str] = None
-    _format: Literal["openai", "openai-audio", "anthropic", "url", "mistralai", "hf", "together", "prettify"] = "url"
+    _format: Literal["openai", "openai-audio", "anthropic", "url", "mistralai", "hf", "prettify"] = "url"
     force_merge: bool = False
     enforce_json_compatible_prompt: bool = False
     no_system: bool = False

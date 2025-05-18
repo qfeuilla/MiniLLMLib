@@ -899,15 +899,10 @@ class TestChatNode(unittest.IsolatedAsyncioTestCase):
         # Test Anthropic format
         mock_response_anthropic = Mock()
         mock_response_anthropic.content = [Mock(text="Anthropic Response")]
-        
-        # Test Together format
-        mock_response_together = Mock()
-        mock_response_together.choices = [Mock(message=Mock(content="Together Response"))]
 
         with patch('minillmlib.core.chat_node.time.sleep'), \
              patch('minillmlib.core.chat_node.OpenAI', return_value=mock_client), \
-             patch('minillmlib.core.chat_node.Anthropic', return_value=mock_client), \
-             patch('minillmlib.core.chat_node.Together', return_value=mock_client):
+             patch('minillmlib.core.chat_node.Anthropic', return_value=mock_client):
             
             # Test OpenAI format
             mock_client.chat.completions.create.return_value = mock_response_openai
@@ -920,12 +915,6 @@ class TestChatNode(unittest.IsolatedAsyncioTestCase):
             gi_anthropic = GeneratorInfo(model="claude-2", _format="anthropic", api_key="test")
             result = self.chat_node.complete_one(NodeCompletionParameters(gi=gi_anthropic, add_child=True))
             self.assertEqual(result.content, "Anthropic Response")
-            
-            # Test Together format
-            mock_client.chat.completions.create.return_value = mock_response_together
-            gi_together = GeneratorInfo(model="together", _format="together", api_key="test")
-            result = self.chat_node.complete_one(NodeCompletionParameters(gi=gi_together, add_child=True))
-            self.assertEqual(result.content, "Together Response")
 
     def test_enforce_json_compatible_prompt(self):
         # Test GeneratorInfo with enforce_json_compatible_prompt enabled

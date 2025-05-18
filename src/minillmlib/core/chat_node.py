@@ -15,7 +15,6 @@ from anthropic.types.message import Message
 from mistralai import Mistral
 from openai import AsyncOpenAI, OpenAI
 from openai.types.chat import ChatCompletion
-from together import AsyncTogether, Together
 
 from ..models.generator_info import (HUGGINGFACE_ACTIVATED, GeneratorInfo,
                                      pretty_messages, torch)
@@ -50,7 +49,6 @@ def _initialize_api(api_class, env_key: str, async_api_class=None):
 anthropic_api, anthropic_async_api = _initialize_api(Anthropic, "ANTHROPIC_API_KEY", AsyncAnthropic)
 openai_api, openai_async_api = _initialize_api(OpenAI, "OPENAI_API_KEY", AsyncOpenAI)
 mistralai_api, _ = _initialize_api(Mistral, "MISTRAL_API_KEY")
-together_api, together_async_api = _initialize_api(Together, "TOGETHER_API_KEY", AsyncTogether)
 
 
 # NOTE: This object can be used in two shapes:
@@ -199,7 +197,7 @@ class ChatNode:
 
         # Choose the correct formatting depending on the gi _format
         # Opt 1: Remove the audio from the messages
-        if gi._format in ["openai", "anthropic", "url", "mistralai", "hf", "together"]:
+        if gi._format in ["openai", "anthropic", "url", "mistralai", "hf"]:
             new_messages = []
             for message in messages:
                 content = ""
@@ -281,7 +279,7 @@ class ChatNode:
                 for msg in messages
             )
         else:
-            raise NotImplementedError(f"{gi._format} not supported. It must be one of ['openai', 'anthropic', 'url', 'mistralai', 'hf', 'together', 'prettify'] to support get_messages")
+            raise NotImplementedError(f"{gi._format} not supported. It must be one of ['openai', 'anthropic', 'url', 'mistralai', 'hf', 'prettify'] to support get_messages")
 
         # NOTE: This makes sure that the content is a string that can be JSON decoded without issues (useful in case the LLM API url is not well coded, but it could affect the prompt so it should not be on by default)
         if gi.enforce_json_compatible_prompt:
@@ -383,7 +381,7 @@ class ChatNode:
         if gi.is_chat == False:
             raise NotImplementedError(f"Non chat completion is not supported for now")
         
-        if gi._format not in ["openai", "openai-audio", "anthropic", "url", "mistralai", "hf", "together"]:
+        if gi._format not in ["openai", "openai-audio", "anthropic", "url", "mistralai", "hf"]:
             raise NotImplementedError(f"{gi._format} not supported for chat completion")
         
         # deepcopy the gi to avoid modifying the original
@@ -420,7 +418,6 @@ class ChatNode:
                 "openai-audio": [OpenAI(api_key=gi.api_key), AsyncOpenAI(api_key=gi.api_key)][use_async],
                 "anthropic": [Anthropic(api_key=gi.api_key), AsyncAnthropic(api_key=gi.api_key)][use_async],
                 "mistralai": Mistral(api_key=gi.api_key),
-                "together": [Together(api_key=gi.api_key), AsyncTogether(api_key=gi.api_key)][use_async],
                 "url": gi.api_url,
                 "hf": None
             }[gi._format]
@@ -430,7 +427,6 @@ class ChatNode:
                 "openai-audio": [openai_api, openai_async_api][use_async],
                 "anthropic": [anthropic_api, anthropic_async_api][use_async],
                 "mistralai": mistralai_api,
-                "together": [together_api, together_async_api][use_async],
                 "url": gi.api_url,
                 "hf": None
             }[gi._format]
@@ -539,7 +535,6 @@ class ChatNode:
             "openai-audio": self.__chat_complete_openai_audio,
             "anthropic": self.__chat_complete_anthropic,
             "mistralai": self.__chat_complete_mistralai,
-            "together": self.__chat_complete_together,
             "url": self.__chat_complete_url,
             "hf": self.__chat_complete_hf
         }[gi._format]
@@ -596,7 +591,6 @@ class ChatNode:
             "openai-audio": self.__chat_complete_openai_audio_async,
             "anthropic": self.__chat_complete_anthropic_async,
             "mistralai": self.__chat_complete_mistralai_async,
-            "together": self.__chat_complete_together_async,
             "url": self.__chat_complete_url_async
         }[gi._format]
         
@@ -823,24 +817,6 @@ class ChatNode:
         response = await api.chat.complete_async(**get_payload(gi, messages))
         return response.choices[0].message.content
 
-    def __chat_complete_together(self,
-        gi: GeneratorInfo,
-        messages: List[Dict[str, str]],
-        api: Together,
-        *_1, **_2
-    ) -> str:
-        response = api.chat.completions.create(**get_payload(gi, messages))
-        return response.choices[0].message.content
-
-    async def __chat_complete_together_async(self,
-        gi: GeneratorInfo,
-        messages: List[Dict[str, str]],
-        api: AsyncTogether,
-        *_1, **_2
-    ) -> str:
-        response = await api.chat.completions.create(**get_payload(gi, messages))
-        return response.choices[0].message.content
-    
     def __chat_complete_url(self,
         gi: GeneratorInfo,
         messages: List[Dict[str, str]],
