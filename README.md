@@ -1,5 +1,10 @@
 # MiniLLMLib
 
+[![PyPI version](https://img.shields.io/pypi/v/minillmlib.svg)](https://pypi.org/project/minillmlib/)
+[![Docs](https://readthedocs.org/projects/minillmlib/badge/?version=latest)](https://minillmlib.readthedocs.io/en/latest/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python](https://img.shields.io/pypi/pyversions/minillmlib.svg)](https://pypi.org/project/minillmlib/)
+
 A Python library for interacting with various LLM providers (OpenAI, Anthropic, Mistral, HuggingFace, through URL).
 
 Author: Quentin Feuillade--Montixi
@@ -52,13 +57,13 @@ print(response.content)
 
 ## Documentation
 
-- See [docs/usage.md](docs/usage.md) for advanced usage, parameter tables, and branching/loom semantics.
-- See [docs/providers.md](docs/providers.md) for supported models and configuration tips.
-- See [docs/troubleshooting.md](docs/troubleshooting.md) for common issues and debugging.
+- See the [Usage Guide](https://minillmlib.readthedocs.io/en/latest/usage.html) for advanced usage, parameter tables, and branching/loom semantics.
+- See the [Provider Matrix](https://minillmlib.readthedocs.io/en/latest/providers.html) for supported models and configuration tips.
+- See [Troubleshooting](https://minillmlib.readthedocs.io/en/latest/troubleshooting.html) for common issues and debugging.
 
 ## Configuration
 
-- Set API keys as environment variables for security (see [docs/configuration.md](docs/configuration.md)).
+- Set API keys as environment variables for security (see the [Configuration Guide](https://minillmlib.readthedocs.io/en/latest/configuration.html)).
 
 ## Development & Contribution
 
@@ -66,8 +71,8 @@ print(response.content)
   ```bash
   pytest tests/
   ```
-- See [docs/contributing.md](docs/contributing.md) for contribution guidelines.
+- See [Contributing](https://minillmlib.readthedocs.io/en/latest/contributing.html) for contribution guidelines.
 
 ---
 
-For more, see the full documentation in the `docs/` folder or open an issue on GitHub if you need help.
+For more, see the full documentation at [minillmlib.readthedocs.io](https://minillmlib.readthedocs.io/) or open an issue on [GitHub](https://github.com/qfeuilla/MiniLLMLib) if you need help.
