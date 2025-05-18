@@ -1,6 +1,6 @@
 import sys
 import os
-from importlib.metadata import version
+from importlib.metadata import version as pkg_version
 
 # Ensure the src directory is on sys.path for autodoc
 sys.path.insert(0, os.path.abspath('../src'))
@@ -11,9 +11,10 @@ author = 'Quentin Feuillade--Montixi'
 
 # Use setuptools_scm to get the version from git tags
 try:
-    release = version("minillmlib")
+    release = pkg_version("minillmlib")
+    version = release  # Sphinx expects both to be strings
 except Exception:
-    release = 'unknown'
+    release = version = 'unknown'
 
 extensions = [
     'myst_parser',  # Markdown support
