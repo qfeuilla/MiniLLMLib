@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=61.0", "setuptools_scm"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "minillmlib"
-version = "0.1.0"
+
 description = "Minimalist Library for programming with LLMs"
 authors = [
     { name = "Quentin Feuillade--Montixi" }
@@ -41,3 +41,7 @@ where = ["src"]
 
 [tool.setuptools]
 package-dir = { "" = "src" }
+
+[tool.setuptools_scm]
+version_scheme = "post-release"
+local_scheme = "no-local-version"
