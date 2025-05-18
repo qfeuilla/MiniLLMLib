@@ -11,6 +11,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Fetch full git history for setuptools_scm
+        run: git fetch --unshallow || true
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -26,6 +28,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Fetch full git history for setuptools_scm
+        run: git fetch --unshallow || true
       - name: Set up Python
         uses: actions/setup-python@v5
         with:

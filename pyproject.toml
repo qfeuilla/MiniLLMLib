@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "minillmlib"
-
+dynamic = ["version"]
 description = "Minimalist Library for programming with LLMs"
 authors = [
     { name = "Quentin Feuillade--Montixi" }
