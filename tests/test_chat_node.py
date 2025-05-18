@@ -4,11 +4,10 @@ import json
 import os
 import tempfile
 import unittest
-from unittest.mock import Mock, patch, AsyncMock
+from unittest.mock import AsyncMock, Mock, patch
 
 from minillmlib.core.chat_node import HUGGINGFACE_ACTIVATED, ChatNode, torch
-from minillmlib.models.generator_info import (GeneratorCompletionParameters,
-                                              GeneratorInfo)
+from minillmlib.models.generator_info import GeneratorInfo
 from minillmlib.utils.message_utils import NodeCompletionParameters
 
 
@@ -360,7 +359,7 @@ class TestChatNode(unittest.IsolatedAsyncioTestCase):
             params = NodeCompletionParameters(
                 gi=self.gi,
                 add_child=True,
-                generation_parameters=GeneratorCompletionParameters(n=2)
+                n=2
             )
             
             results = self.chat_node.complete(params)
@@ -459,7 +458,7 @@ class TestChatNode(unittest.IsolatedAsyncioTestCase):
             params = NodeCompletionParameters(
                 gi=self.gi,
                 add_child=True,
-                generation_parameters=GeneratorCompletionParameters(n=2)
+                n=2
             )
             
             results = await self.chat_node.complete_async(params)

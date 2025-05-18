@@ -413,3 +413,4 @@ class NodeCompletionParameters:
     back_off_time: float = 1
     max_back_off: int = 15
     crash_on_empty_response: bool = False
+    n: int = 1

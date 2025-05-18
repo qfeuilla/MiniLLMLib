@@ -6,7 +6,6 @@ import json
 import os
 import time
 import warnings
-from copy import deepcopy
 from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
@@ -644,11 +643,7 @@ class ChatNode:
         # Generate n completions using the synchronous complete_one method
         children = [
             self.complete_one(completion_params) 
-            for _ in range(
-                completion_params.generation_parameters.n 
-                if completion_params.generation_parameters is not None 
-                else completion_params.gi.completion_parameters.n
-            )
+            for _ in range(completion_params.n)
         ]
 
         return children if len(children) > 1 else children[0]
@@ -663,11 +658,7 @@ class ChatNode:
         # Generate n completions using the async complete_one_async method
         tasks = [
             self.complete_one_async(completion_params)
-            for _ in range(
-                completion_params.generation_parameters.n 
-                if completion_params.generation_parameters is not None 
-                else completion_params.gi.completion_parameters.n
-            )
+            for _ in range(completion_params.n)
         ]
         
         children = await asyncio.gather(*tasks)

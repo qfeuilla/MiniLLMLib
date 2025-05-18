@@ -1,0 +1,29 @@
+site_name: MiniLLMLib
+site_description: Minimalist Python library for flexible, multi-provider LLM interaction
+site_author: Quentin Feuillade--Montixi
+docs_dir: docs
+repo_url: https://github.com/qfeuilla/MiniLLMLib
+repo_name: qfeuilla/MiniLLMLib
+theme:
+  name: material
+  features:
+    - navigation.tabs
+    - navigation.top
+    - content.code.copy
+    - content.action.edit
+nav:
+  - Home: index.md
+  - Quickstart & Usage: usage.md
+  - Providers: providers.md
+  - Configuration: configuration.md
+  - Frontend & CLI: frontend.md
+  - API Reference: api.md
+  - Extending: extending.md
+  - Troubleshooting: troubleshooting.md
+  - Contributing: contributing.md
+markdown_extensions:
+  - admonition
+  - codehilite
+  - footnotes
+  - toc:
+      permalink: true

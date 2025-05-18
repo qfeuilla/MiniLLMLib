@@ -3,10 +3,8 @@ import os
 import tempfile
 from unittest import TestCase
 
-from minillmlib.utils.message_utils import (
-    AudioData,
-    merge_contiguous_messages
-)
+from minillmlib.utils.message_utils import AudioData, merge_contiguous_messages
+
 
 class TestMessageMerge(TestCase):
     def setUp(self):

@@ -64,6 +64,7 @@ openai_audio = {
         model="gpt-4o-audio-preview",
         _format="openai-audio",
         completion_parameters=GeneratorCompletionParameters(
+            audio_output_folder="./audio/",
             voice="alloy",
         ),
         deactivate_max_tokens=True

@@ -20,7 +20,6 @@ class GeneratorCompletionParameters:
     # Text
     temperature: float = 0.8
     max_tokens: int = 512
-    n: int = 1
     
     # Audio
     voice: Literal['alloy', 'ash', 'ballad', 'coral', 'echo', 'sage', 'shimmer'] = "alloy"
@@ -152,7 +151,6 @@ class GeneratorInfo:
             self.additional_kwargs,
             self.temperature,
             self.max_tokens,
-            self.n,
             self.api_url,
             self._format,
             self.no_system,

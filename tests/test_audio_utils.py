@@ -1,17 +1,16 @@
 """Test audio utilities."""
-import os
 import base64
+import os
+import struct
 import tempfile
 import wave
-import struct
 from unittest import TestCase
 
-from minillmlib.utils.message_utils import (
-    AudioData,
-    process_audio_for_completion,
-    base64_to_temp_audio_file,
-    base64_to_wav
-)
+from minillmlib.utils.message_utils import (AudioData,
+                                            base64_to_temp_audio_file,
+                                            base64_to_wav,
+                                            process_audio_for_completion)
+
 
 class TestAudioData(TestCase):
     def setUp(self):

@@ -24,7 +24,6 @@ class TestGeneratorInfo(unittest.TestCase):
         params = GeneratorCompletionParameters(
             temperature=0.7,
             max_tokens=100,
-            n=2,
             top_p= 0.9
         )
         
@@ -37,19 +36,16 @@ class TestGeneratorInfo(unittest.TestCase):
         
         self.assertEqual(gi.completion_parameters.temperature, 0.7)
         self.assertEqual(gi.completion_parameters.max_tokens, 100)
-        self.assertEqual(gi.completion_parameters.n, 2)
         self.assertEqual(gi.completion_parameters.kwargs["top_p"], 0.9)
 
     def test_generator_completion_parameters_with_kwargs(self):
         # Test with only standard parameters
         params = GeneratorCompletionParameters(
             temperature=0.7,
-            max_tokens=100,
-            n=2
+            max_tokens=100
         )
         self.assertEqual(params.temperature, 0.7)
         self.assertEqual(params.max_tokens, 100)
-        self.assertEqual(params.n, 2)
         self.assertEqual(params.kwargs, {})
 
         # Test with additional kwargs
@@ -86,7 +82,6 @@ class TestGeneratorInfo(unittest.TestCase):
         # Test default values
         params = GeneratorCompletionParameters()
         self.assertEqual(params.temperature, .8)
-        self.assertEqual(params.n, 1)
         self.assertEqual(params.kwargs, {})
 
         # Test with None values
@@ -121,12 +116,10 @@ class TestGeneratorInfo(unittest.TestCase):
         # Test with known parameters
         params = GeneratorCompletionParameters(
             temperature=0.5,
-            max_tokens=256,
-            n=2
+            max_tokens=256
         )
         self.assertEqual(params.temperature, 0.5)
         self.assertEqual(params.max_tokens, 256)
-        self.assertEqual(params.n, 2)
         self.assertEqual(params.kwargs, {})
 
         # Test with unknown parameters
@@ -142,7 +135,6 @@ class TestGeneratorInfo(unittest.TestCase):
         params = GeneratorCompletionParameters()
         self.assertEqual(params.temperature, 0.8)
         self.assertEqual(params.max_tokens, 512)
-        self.assertEqual(params.n, 1)
         self.assertEqual(params.kwargs, {})
 
     @unittest.skipUnless(HUGGINGFACE_ACTIVATED, "HuggingFace not installed")
