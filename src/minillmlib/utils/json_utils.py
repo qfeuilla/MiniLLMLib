@@ -12,12 +12,13 @@ def to_dict(item: Any) -> Dict[Any, Any]:
         for k, v in item.items():
             data[k] = to_dict(v)
         return data
-    elif isinstance(item, list) or isinstance(item, tuple):
+    elif isinstance(item, (list, tuple)):
         return [to_dict(x) for x in item]
     elif hasattr(item, "__dict__"):
         data = {}
         for k, v in item.__dict__.items():
-            # Exclude private attributes, help with infinite loops (e.g. in chained list, put the parent as _parent)
+            # Exclude private attributes, help with infinite loops
+            # (e.g. in chained list, put the parent as _parent)
             if not k.startswith("_"):
                 data[k] = to_dict(v)
         return data

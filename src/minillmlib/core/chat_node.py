@@ -1,4 +1,7 @@
 """Core ChatNode implementation for MiniLLMLib."""
+# pylint: disable=too-many-lines
+# pylint: disable=protected-access
+
 from __future__ import annotations
 
 import asyncio
@@ -16,53 +19,73 @@ from mistralai import Mistral
 from openai import AsyncOpenAI, OpenAI
 from openai.types.chat import ChatCompletion
 
-from ..models.generator_info import (HUGGINGFACE_ACTIVATED, GeneratorInfo,
-                                     pretty_messages, torch)
+from ..models.generator_info import (
+    HUGGINGFACE_ACTIVATED,
+    GeneratorInfo,
+    pretty_messages,
+    torch,
+)
 from ..utils.json_utils import extract_json_from_completion, to_dict
 from ..utils.logging_utils import get_logger
-from ..utils.message_utils import (AudioData, NodeCompletionParameters,
-                                   base64_to_wav, format_prompt, get_payload,
-                                   hf_process_messages,
-                                   merge_contiguous_messages,
-                                   process_audio_for_completion,
-                                   validate_json_response)
+from ..utils.message_utils import (
+    AudioData,
+    NodeCompletionParameters,
+    base64_to_wav,
+    format_prompt,
+    get_payload,
+    hf_process_messages,
+    merge_contiguous_messages,
+    process_audio_for_completion,
+    validate_json_response,
+)
 
 warnings.filterwarnings("ignore", message=".*verification is strongly advised.*")
 
 logger = get_logger()
 
+
 def _initialize_api(api_class, env_key: str, async_api_class=None):
     try:
         api_key = os.environ.get(env_key)
         sync_client = api_class(api_key=api_key) if api_key else None
-        async_client = async_api_class(api_key=api_key) if api_key and async_api_class else None
+        async_client = (
+            async_api_class(api_key=api_key) if api_key and async_api_class else None
+        )
         return sync_client, async_client
-    except Exception as e:
-        logger.warning({
-            "message": "Failed to initialize API",
-            "api": api_class.__name__,
-            "error": str(e)
-        })
+    except Exception as e: # pylint: disable=broad-except
+        logger.warning(
+            {
+                "message": "Failed to initialize API",
+                "api": api_class.__name__,
+                "error": str(e),
+            }
+        )
         return None, None
 
+
 # Initialize API clients
-anthropic_api, anthropic_async_api = _initialize_api(Anthropic, "ANTHROPIC_API_KEY", AsyncAnthropic)
+anthropic_api, anthropic_async_api = _initialize_api(
+    Anthropic, "ANTHROPIC_API_KEY", AsyncAnthropic
+)
 openai_api, openai_async_api = _initialize_api(OpenAI, "OPENAI_API_KEY", AsyncOpenAI)
 mistralai_api, _ = _initialize_api(Mistral, "MISTRAL_API_KEY")
 
 
 # NOTE: This object can be used in two shapes:
-# - A Thread (in case there is only one child per node) --> I use it mostly like this. Loom will be for when we'll do the cyborg tool
+# - A Thread (in case there is only one child per node) --> I use it mostly like this.
+#   Loom will be for when we'll do the cyborg tool
 # - A Loom (in case there are multiple children per node)
-class ChatNode:    
-    def __init__(self, 
-        content: Optional[str] = None, 
-        role: str = "user", 
+class ChatNode:
+    """A node in a chat tree."""
+
+    def __init__(self,
+        content: Optional[str] = None,
+        role: str = "user",
         audio_data: Optional[AudioData] = None,
-        format_kwargs: Optional[Dict[str, Any]] = None
+        format_kwargs: Optional[Dict[str, Any]] = None,
     ):
         """Initialize a ChatNode.
-        
+
         Args:
             content: Optional textual content of the message
             role: Role of the message sender (user/assistant/system/base)
@@ -71,22 +94,27 @@ class ChatNode:
         """
         # NOTE (design choice): For now audio and content will be stored in separate nodes
         if (content is None) == (audio_data is None):
-            raise ValueError(f"content xor audio_data must be provided, audio and content must be sent in separate nodes in the correct order")
+            raise ValueError(
+                "content xor audio_data must be provided, audio and content "
+                "must be sent in separate nodes in the correct order"
+            )
 
         if role not in [
             "user",
             "assistant",
             "system",
             "base",
-        ]: 
-            raise ValueError("role must be one of 'user', 'assistant', 'system' or 'base'")
+        ]:
+            raise ValueError(
+                "role must be one of 'user', 'assistant', 'system' or 'base'"
+            )
 
         self.role = role
         self.content = content
 
         self.children: List[ChatNode] = []
         self._parent: Optional[ChatNode] = None
-        
+
         self.metadata: Dict[str, Any] = {}
 
         # The self.format_kwargs are loaded only if they can be retrieved in the content.
@@ -104,38 +132,48 @@ class ChatNode:
         """Get the root node of the tree."""
         return self if self.is_root() else self._parent.get_root()
 
-    def add_child(self, 
-        child: ChatNode, 
-        illegitimate: bool = False
-    ) -> ChatNode:
+    def add_child(self, child: ChatNode, illegitimate: bool = False) -> ChatNode:
         """Add a child node to this node.
-        
+
         Args:
             child: The child node to add
-            illegitimate: If True, only the child knows it's parent but the parent doesn't get the child added
+            illegitimate: If True, only the child knows it's parent but
+                          the parent doesn't get the child added
         """
         child._parent = self
 
         if not illegitimate:
             self.children.append(child)
 
-            # For Thread mode, save the format_kwargs of the child to the root of the tree (only the root's format_kwargs are saved in thread mode)
+            # For Thread mode, save the format_kwargs of the child to the root of the tree
+            # (only the root's format_kwargs are saved in thread mode)
             root = self.get_root()
             for key in child.format_kwargs:
                 if key not in root.format_kwargs:
                     root.format_kwargs[key] = child.format_kwargs[key]
                 else:
-                    logger.warning({
-                        "message": "Format kwargs key collision",
-                        "key": key,
-                        "detail": "Key already exists in the root of the tree. After loading, only one will be used."
-                    })
+                    logger.warning(
+                        {
+                            "message": "Format kwargs key collision",
+                            "key": key,
+                            "detail": (
+                                "Key already exists in the root of the tree. "
+                                "After loading, only one will be used."
+                            ),
+                        }
+                    )
 
         return child
 
-    def get_messages(self, 
-        gi: GeneratorInfo = pretty_messages, 
-        merge_contiguous: Optional[str] = "all"
+    def detach(self) -> ChatNode:
+        """Detach this node from its parent."""
+        self._parent.children.remove(self)
+        self._parent = None
+        return self
+
+    def get_messages(self,
+        gi: GeneratorInfo = pretty_messages,
+        merge_contiguous: Optional[str] = "all",
     ) -> List[Dict[str, Any]] | str:
         """Get all messages in the conversation path to this node."""
         if merge_contiguous not in [
@@ -150,23 +188,25 @@ class ChatNode:
                 "merge_contiguous must be one of None, 'all', 'user', 'assistant', 'system', 'base'"
             )
 
-        messages : List[Dict[str, str]] = []
+        messages: List[Dict[str, str]] = []
         current = self
         while current is not None:
             if gi.is_chat and current.role == "base":
                 raise ValueError("The role 'base' is not allowed in chat models")
-            
+
             content = None
             if current.content is not None:
                 try:
                     content = format_prompt(current.content, **current.format_kwargs)
-                except Exception as e:
-                    logger.debug({
-                        "message": "Error formatting content",
-                        "content": current.content,
-                        "error": str(e),
-                        "detail": "Formatting skipped"
-                    })
+                except Exception as e: # pylint: disable=broad-except
+                    logger.debug(
+                        {
+                            "message": "Error formatting content",
+                            "content": current.content,
+                            "error": str(e),
+                            "detail": "Formatting skipped",
+                        }
+                    )
                     content = current.content
             else:
                 # Check if audio paths are valid
@@ -175,11 +215,13 @@ class ChatNode:
                         # It's ok if the audio paths are not found for assistant messages
                         raise FileNotFoundError(f"Audio file not found: {audio_path}")
 
-            messages.append({
-                "role": current.role, 
-                "content": content,
-                "audio_data": current.audio_data
-            })
+            messages.append(
+                {
+                    "role": current.role,
+                    "content": content,
+                    "audio_data": current.audio_data,
+                }
+            )
             current = current._parent
 
         messages.reverse()
@@ -208,18 +250,25 @@ class ChatNode:
                         if data["transcript"] is not None:
                             content += "\n" + data["transcript"]
                         else:
-                            content += f"\n*The {message['role']} attempted to provide an audio here, but there is not transcription available*"
+                            content += (
+                                f"\n*The {message['role']} attempted to provide an audio here, "
+                                "but there is not transcription available*"
+                            )
 
                     # TODO: Maybe use a transcription tool on the file
-                    if message["role"] != "assistant" and len(message["audio_data"].audio_paths) > 0:
-                        content += f"\n*The {message['role']} provided {len(message["audio_data"].audio_paths)} audio, but there is not transcriptions available*"
+                    if (
+                        message["role"] != "assistant"
+                        and len(message["audio_data"].audio_paths) > 0
+                    ):
+                        content += (
+                            f"\n*The {message['role']} provided "
+                            f"{len(message['audio_data'].audio_paths)} audio, "
+                            "but there is not transcriptions available*"
+                        )
                 else:
                     content = message["content"]
-                
-                new_messages.append({
-                    "role": message["role"],
-                    "content": content
-                })
+
+                new_messages.append({"role": message["role"], "content": content})
 
             messages = new_messages
 
@@ -232,35 +281,40 @@ class ChatNode:
                         for _id, data in message["audio_data"].audio_ids.items():
                             # If the id is not expired, use it, else use the transcript
                             if data["expires_at"] > time.time():
-                                new_messages.append({
-                                    "role": "assistant",
-                                    "audio": {
-                                        "id": _id
-                                    }
-                                })
+                                new_messages.append(
+                                    {"role": "assistant", "audio": {"id": _id}}
+                                )
                             else:
-                                new_messages.append({
-                                    "role": "assistant",
-                                    "content": "\n[Audio transcription]\n" + data["transcript"]
-                                })
-                    else: 
-                        audio_data = process_audio_for_completion(file_paths=message["audio_data"].audio_paths)
-                        for chunk in audio_data["chunks"]:
-                            new_messages.append({
-                                "role": message["role"],
-                                "content": [{
-                                    "type": "input_audio",
-                                    "input_audio": {
-                                        "data": chunk,
-                                        "format": "wav"
+                                new_messages.append(
+                                    {
+                                        "role": "assistant",
+                                        "content": "\n[Audio transcription]\n"
+                                        + data["transcript"],
                                     }
-                                }]
-                            })
+                                )
+                    else:
+                        audio_data = process_audio_for_completion(
+                            file_paths=message["audio_data"].audio_paths
+                        )
+                        for chunk in audio_data["chunks"]:
+                            new_messages.append(
+                                {
+                                    "role": message["role"],
+                                    "content": [
+                                        {
+                                            "type": "input_audio",
+                                            "input_audio": {
+                                                "data": chunk,
+                                                "format": "wav",
+                                            },
+                                        }
+                                    ],
+                                }
+                            )
                 else:
-                    new_messages.append({
-                        "role": message["role"],
-                        "content": message["content"]
-                    })
+                    new_messages.append(
+                        {"role": message["role"], "content": message["content"]}
+                    )
 
             messages = new_messages
 
@@ -268,35 +322,45 @@ class ChatNode:
         elif gi._format in ["prettify"]:
             # Check that the translation table is complete
             if not all(
-                role in gi.translation_table for role in ["user", "assistant", "system", "base"]
+                role in gi.translation_table
+                for role in ["user", "assistant", "system", "base"]
             ):
                 raise ValueError(
-                    f"The translation table must be complete for the model {gi._format}, with all the keys ['user', 'assistant', 'system', 'base']"
+                    "The translation table must be complete for the model "
+                    f"{gi._format}, "
+                    "with all the keys ['user', 'assistant', 'system', 'base']"
                 )
-            
+
             messages = "".join(
                 f"{gi.translation_table[msg['role']]}{msg['content']}"
                 for msg in messages
             )
         else:
-            raise NotImplementedError(f"{gi._format} not supported. It must be one of ['openai', 'anthropic', 'url', 'mistralai', 'hf', 'prettify'] to support get_messages")
+            raise NotImplementedError(
+                f"{gi._format} not supported. It must be one of "
+                "['openai', 'anthropic', 'url', 'mistralai', 'hf', 'prettify']"
+            )
 
-        # NOTE: This makes sure that the content is a string that can be JSON decoded without issues (useful in case the LLM API url is not well coded, but it could affect the prompt so it should not be on by default)
+        # NOTE: This makes sure that the content is a string that can be JSON decoded without issues
+        #       (useful in case the LLM API url is not well coded, but it could affect the prompt
+        #       so it should not be on by default)
+
         if gi.enforce_json_compatible_prompt:
             if gi._format == "openai-audio":
-                raise ValueError("enforce_json_compatible_prompt is not supported for openai-audio")
+                raise ValueError(
+                    "enforce_json_compatible_prompt is not supported for openai-audio"
+                )
             messages = [
                 {
                     "role": message["role"],
                     "content": json.dumps({"prompt": message["content"]})[12:-2],
-                } for message in messages
+                }
+                for message in messages
             ]
 
         return messages
-    
-    def get_child(self,
-        _map: List[int] = None
-    ) -> ChatNode:
+
+    def get_child(self, _map: List[int] = None) -> ChatNode:
         """Get the child of this node using a map."""
         node = self
         i = 0
@@ -306,34 +370,31 @@ class ChatNode:
             if _map is not None and i >= len(_map):
                 break
         return node
-    
+
     def get_last_child(self) -> ChatNode:
         """Get the last child of this node taking the last child each time."""
         return self.get_child()
-    
-    def merge(self,
-        other: ChatNode
-    ) -> ChatNode:
+
+    def merge(self, other: ChatNode) -> ChatNode:
         """Merge the root of the other tree to the current node."""
         self.add_child(other.get_root())
         return other
-    
-    def update_format_kwargs(self,
-        propagate: bool = True,
-        **kwargs
-    ) -> None:
-        """Update the format_kwargs in the current node and in all the parents until the root if propagate is True."""
+
+    def update_format_kwargs(self, propagate: bool = True, **kwargs) -> None:
+        """
+        Update the format_kwargs in the current node and 
+        in all the parents until the root if propagate is True.
+        """
         if self._parent is not None and propagate:
             self._parent.update_format_kwargs(propagate=propagate, **kwargs)
 
-        for k in kwargs:
+        for k, v in kwargs.items():
             # Only update the parameter if it's in the format_kwargs
             if k in self.format_kwargs:
-                self.format_kwargs[k] = kwargs[k]
-    
-    def save_thread(self,
-        path: str
-    ) -> None:
+                self.format_kwargs[k] = v
+
+    def save_thread(self, path: str) -> None:
+        """Save the node to a thread file."""
         node_list = []
         node = self
         while node:
@@ -341,60 +402,79 @@ class ChatNode:
             node = node._parent
         node_list.reverse()
 
-        json.dump({
-            "required_kwargs": self.get_root().format_kwargs,
-            "prompts": [
-                {
-                    "role": node.role, 
-                    "content": node.content, 
-                    "audio_data": {
-                        "audio_paths": node.audio_data.audio_paths,
-                        "audio_ids": node.audio_data.audio_ids
-                    } if node.audio_data is not None else None
-                } for node in node_list
-            ],
-        }, open(path, "w+"), indent=4)
-    
-    def save_loom(self,
-        path: str
-    ) -> None:
-        json.dump(to_dict(self.get_root()), open(path, "w+"), indent=4)
-    
-    def _prepare_completion(self, 
+        json.dump(
+            {
+                "required_kwargs": self.get_root().format_kwargs,
+                "prompts": [
+                    {
+                        "role": node.role,
+                        "content": node.content,
+                        "audio_data": (
+                            {
+                                "audio_paths": node.audio_data.audio_paths,
+                                "audio_ids": node.audio_data.audio_ids,
+                            }
+                            if node.audio_data is not None
+                            else None
+                        ),
+                    }
+                    for node in node_list
+                ],
+            },
+            open(path, "w+", encoding="utf-8"),
+            indent=4,
+        )
+
+    def save_loom(self, path: str) -> None:
+        """Save the node to a loom file."""
+        json.dump(to_dict(self.get_root()), open(path, "w+", encoding="utf-8"), indent=4)
+
+    def _prepare_completion(self,
         completion_params: NodeCompletionParameters | GeneratorInfo,
-        use_async: bool = False
-    ) -> Tuple[GeneratorInfo, Dict[str, Any], List[Dict[str, str]], Any, Optional[ChatNode]]:
+        use_async: bool = False,
+    ) -> Tuple[
+        GeneratorInfo, Dict[str, Any], List[Dict[str, str]], Any, Optional[ChatNode]
+    ]:
         """
         Prepare parameters for completion - shared code between sync and async implementations.
         Returns: (gi, params_dict, messages, api, complete_from)
         """
         if isinstance(completion_params, GeneratorInfo):
             completion_params = NodeCompletionParameters(gi=completion_params)
-            
+
         # Extract parameters
         gi = completion_params.gi
         generation_parameters = completion_params.generation_parameters
         force_prepend = completion_params.force_prepend
         merge_contiguous = completion_params.merge_contiguous
-        
+
         # Validation
-        if gi.is_chat == False:
-            raise NotImplementedError(f"Non chat completion is not supported for now")
-        
-        if gi._format not in ["openai", "openai-audio", "anthropic", "url", "mistralai", "hf"]:
+        if not gi.is_chat:
+            raise NotImplementedError("Non chat completion is not supported for now")
+
+        if gi._format not in [
+            "openai",
+            "openai-audio",
+            "anthropic",
+            "url",
+            "mistralai",
+            "hf",
+        ]:
             raise NotImplementedError(f"{gi._format} not supported for chat completion")
-        
+
         # deepcopy the gi to avoid modifying the original
-        # TODO: This might not be the best idea for local LLMs, I need to find a way to handle them properly without having to clone the weights
+        # TODO: This might not be the best idea for local LLMs,
+        #       I need to find a way to handle them properly without having to clone the weights
         gi = gi.deepcopy()
 
         # Apply generation parameters if provided
-        # NOTE (design choice): the kwargs here are added to the ones in the gi.completion_parameters, and overwrite them if they are already set
+        # NOTE (design choice): the kwargs here are added to the ones in the
+        #      gi.completion_parameters, and overwrite them if they are already set
         if generation_parameters is not None:
             for k, v in gi.completion_parameters.kwargs.items():
                 if k not in generation_parameters.kwargs:
                     generation_parameters.kwargs[k] = v
-            
+
             gi.completion_parameters = generation_parameters
 
         # Set up the complete_from node
@@ -405,21 +485,26 @@ class ChatNode:
             )
 
         # Get messages
-        messages = complete_from.get_messages(
-            gi=gi,
-            merge_contiguous=merge_contiguous
-        )
+        messages = complete_from.get_messages(gi=gi, merge_contiguous=merge_contiguous)
 
         # Get the appropriate API client
         api = None
         if gi.api_key is not None:
             api = {
-                "openai": [OpenAI(api_key=gi.api_key), AsyncOpenAI(api_key=gi.api_key)][use_async],
-                "openai-audio": [OpenAI(api_key=gi.api_key), AsyncOpenAI(api_key=gi.api_key)][use_async],
-                "anthropic": [Anthropic(api_key=gi.api_key), AsyncAnthropic(api_key=gi.api_key)][use_async],
+                "openai": [OpenAI(api_key=gi.api_key), AsyncOpenAI(api_key=gi.api_key)][
+                    use_async
+                ],
+                "openai-audio": [
+                    OpenAI(api_key=gi.api_key),
+                    AsyncOpenAI(api_key=gi.api_key),
+                ][use_async],
+                "anthropic": [
+                    Anthropic(api_key=gi.api_key),
+                    AsyncAnthropic(api_key=gi.api_key),
+                ][use_async],
                 "mistralai": Mistral(api_key=gi.api_key),
                 "url": gi.api_url,
-                "hf": None
+                "hf": None,
             }[gi._format]
         else:
             api = {
@@ -428,7 +513,7 @@ class ChatNode:
                 "anthropic": [anthropic_api, anthropic_async_api][use_async],
                 "mistralai": mistralai_api,
                 "url": gi.api_url,
-                "hf": None
+                "hf": None,
             }[gi._format]
 
         # Put all parameters in a dict to return (except the ones handled differently)
@@ -441,17 +526,18 @@ class ChatNode:
             "exp_back_off": completion_params.exp_back_off,
             "back_off_time": completion_params.back_off_time,
             "max_back_off": completion_params.max_back_off,
-            "force_prepend": force_prepend
+            "force_prepend": force_prepend,
         }
-        
+
         return gi, params_dict, messages, api
 
-    def _process_completion_result(self,
+    def _process_completion_result(
+        self,
         content: str | AudioData,
         params: Dict[str, Any],
         messages: List[Dict[str, Any]],
         gi: GeneratorInfo,
-        retry_state: Dict[str, Any]
+        retry_state: Dict[str, Any],
     ) -> ChatNode:
         """
         Process the completion result - shared code between sync and async implementations.
@@ -464,59 +550,68 @@ class ChatNode:
         add_child = params["add_child"]
 
         clean_messages_for_debug = [
-            message if "audio_data" not in message or message["audio_data"] is None 
-            else {"role": message["role"], "content": "|some audio|"} 
+            (
+                message
+                if "audio_data" not in message or message["audio_data"] is None
+                else {"role": message["role"], "content": "|some audio|"}
+            )
             for message in messages
         ]
 
-        if crash_on_empty_response and \
-            ((type(content) == str and content.strip() == "") or \
-            (type(content) == AudioData and len(content.audio_ids) == 0)):
-            
-            raise Exception(f"No content returned by the model. The request was: {clean_messages_for_debug} and the model used was: {gi.model}")
+        if crash_on_empty_response and (
+            (isinstance(content, str) and content.strip() == "")
+            or (isinstance(content, AudioData) and len(content.audio_ids) == 0)
+        ):
 
-        if type(content) == str:
+            raise Exception(  # pylint: disable=broad-exception-raised
+                f"No content returned by the model. "
+                f"The request was: {clean_messages_for_debug} "
+                f"and the model used was: {gi.model}"
+            )
+
+        if isinstance(content, str):
             to_prepend = force_prepend.format() if force_prepend is not None else ""
             if not content.startswith(to_prepend):
                 content = to_prepend + content
-            
+
             if parse_json:
                 # Prevent back_off if parsing is failing
                 retry_state["back_off"] = False
 
                 if crash_on_refusal and ("{" not in content and "[" not in content):
-                    raise Exception(f"No JSON found in the response: {content}. The request was: {clean_messages_for_debug} and the model used was: {gi.model}")
-                
+                    raise Exception(  # pylint: disable=broad-exception-raised
+                        f"No JSON found in the response: {content}. "
+                        f"The request was: {clean_messages_for_debug} "
+                        f"and the model used was: {gi.model}"
+                    )
+
                 parsed_content = extract_json_from_completion(content)
-                if parsed_content in ['""', '{}', ''] and crash_on_refusal:
-                    raise Exception(f"No JSON found in the response: {content}. The request was: {clean_messages_for_debug} and the model used was: {gi.model}")
-                
+                if parsed_content in ['""', "{}", ""] and crash_on_refusal:
+                    raise Exception(  # pylint: disable=broad-exception-raised
+                        f"No JSON found in the response: {content}. "
+                        f"The request was: {clean_messages_for_debug} "
+                        f"and the model used was: {gi.model}"
+                    )
+
                 # Re-enable back_off after successful parsing
                 retry_state["back_off"] = True
                 content = parsed_content
-                
-            child = ChatNode(content=content, role="assistant")
-        elif type(content) == AudioData:
 
+            child = ChatNode(content=content, role="assistant")
+        elif isinstance(content, AudioData):
             to_prepend = force_prepend.format() if force_prepend is not None else ""
 
-            child = ChatNode(
-                audio_data=content, 
-                role="assistant"
-            )
+            child = ChatNode(audio_data=content, role="assistant")
 
             if len(to_prepend):
-                prepend = ChatNode(
-                    content=to_prepend,
-                    role="assistant"
-                )
+                prepend = ChatNode(content=to_prepend, role="assistant")
                 prepend.add_child(child)
         else:
             raise ValueError(f"Unsupported content type: {type(content)}")
 
         if add_child:
             self.add_child(child)
-            
+
         return child
 
     def complete_one(self,
@@ -527,8 +622,10 @@ class ChatNode:
         This is entirely synchronous and avoids any async/event loop operations.
         """
         # Prepare all the parameters
-        gi, params, messages, api = self._prepare_completion(completion_params, use_async=False)
-        
+        gi, params, messages, api = self._prepare_completion(
+            completion_params, use_async=False
+        )
+
         # Get the appropriate synchronous completion method
         complete_method = {
             "openai": self.__chat_complete_openai,
@@ -536,29 +633,33 @@ class ChatNode:
             "anthropic": self.__chat_complete_anthropic,
             "mistralai": self.__chat_complete_mistralai,
             "url": self.__chat_complete_url,
-            "hf": self.__chat_complete_hf
+            "hf": self.__chat_complete_hf,
         }[gi._format]
-        
+
         # Loop for retries
         retry = params["retry"]
         back_off_time = params["back_off_time"]
-        
+
         content = ""
         retry_state = {"back_off": True}
         while retry:
             try:
                 content = complete_method(gi, messages, api, params["force_prepend"])
                 # Process and return the result
-                child = self._process_completion_result(content, params, messages, gi, retry_state)
+                child = self._process_completion_result(
+                    content, params, messages, gi, retry_state
+                )
                 return child
-            except Exception as e:
-                logger.debug({
-                    "error_type": e.__class__.__name__,
-                    "error_message": str(e),
-                    "error_args": getattr(e, 'args', []),
-                    "content": content
-                })
-                
+            except Exception as e: # pylint: disable=broad-exception-caught
+                logger.debug(
+                    {
+                        "error_type": e.__class__.__name__,
+                        "error_message": str(e),
+                        "error_args": getattr(e, "args", []),
+                        "content": content,
+                    }
+                )
+
                 if retry <= 1:
                     raise e
                 retry -= 1
@@ -568,9 +669,9 @@ class ChatNode:
                         back_off_time = min(back_off_time * 2, params["max_back_off"])
                 else:
                     retry_state["back_off"] = True
-        
+
         # This should never happen because we always return or raise in the loop
-        raise Exception("Unexpected error in complete_one")
+        raise Exception("Unexpected error in complete_one") # pylint: disable=broad-exception-raised
 
     async def complete_one_async(self,
         completion_params: NodeCompletionParameters | GeneratorInfo
@@ -579,41 +680,52 @@ class ChatNode:
         Fully asynchronous version that uses the correct async completion method.
         """
         # Prepare all the parameters
-        gi, params, messages, api = self._prepare_completion(completion_params, use_async=True)
-        
+        gi, params, messages, api = self._prepare_completion(
+            completion_params, use_async=True
+        )
+
         # Check for HuggingFace - which doesn't support async
         if gi._format == "hf":
-            raise NotImplementedError(f"Async completion is not supported for HuggingFace models. Please use the synchronous 'complete_one' method instead.")
-        
+            raise NotImplementedError(
+                "Async completion is not supported for HuggingFace models. "
+                "Please use the synchronous 'complete_one' method instead."
+            )
+
         # Get the appropriate async completion method
         complete_method = {
             "openai": self.__chat_complete_openai_async,
             "openai-audio": self.__chat_complete_openai_audio_async,
             "anthropic": self.__chat_complete_anthropic_async,
             "mistralai": self.__chat_complete_mistralai_async,
-            "url": self.__chat_complete_url_async
+            "url": self.__chat_complete_url_async,
         }[gi._format]
-        
+
         # Loop for retries
         retry = params["retry"]
         back_off_time = params["back_off_time"]
-        
+
         content = ""
         retry_state = {"back_off": True}
         while retry:
             try:
-                content = await complete_method(gi, messages, api, params["force_prepend"])
+                content = await complete_method(
+                    gi, messages, api, params["force_prepend"]
+                )
                 # Process and return the result
-                child = self._process_completion_result(content, params, messages, gi, retry_state)
+                child = self._process_completion_result(
+                    content, params, messages, gi, retry_state
+                )
                 return child
-            except Exception as e:
-                logger.debug({
-                    "error_type": e.__class__.__name__,
-                    "error_message": str(e),
-                    "error_args": getattr(e, 'args', []),
-                    "content": content
-                })
-                
+            except Exception as e: # pylint: disable=broad-except
+                logger.debug(
+                    {
+                        "error_type": e.__class__.__name__,
+                        "error_message": str(e),
+                        "error_args": getattr(e, "args", []),
+                        "content": content,
+                    }
+                )
+
                 if retry <= 1:
                     raise e
                 retry -= 1
@@ -623,9 +735,9 @@ class ChatNode:
                         back_off_time = min(back_off_time * 2, params["max_back_off"])
                 else:
                     retry_state["back_off"] = True
-                    
+
         # This should never happen because we always return or raise in the loop
-        raise Exception("Unexpected error in complete_one_async")
+        raise Exception("Unexpected error in complete_one_async") # pylint: disable=broad-exception-raised
 
     def complete(self,
         completion_params: NodeCompletionParameters | GeneratorInfo
@@ -636,69 +748,69 @@ class ChatNode:
 
         # Generate n completions using the synchronous complete_one method
         children = [
-            self.complete_one(completion_params) 
-            for _ in range(completion_params.n)
+            self.complete_one(completion_params) for _ in range(completion_params.n)
         ]
 
         return children if len(children) > 1 else children[0]
-        
+
     async def complete_async(self,
         completion_params: NodeCompletionParameters | GeneratorInfo
     ) -> ChatNode | List[ChatNode]:
         """Asynchronous version of complete."""
         if isinstance(completion_params, GeneratorInfo):
-            return await self.complete_async(NodeCompletionParameters(gi=completion_params))
+            return await self.complete_async(
+                NodeCompletionParameters(gi=completion_params)
+            )
 
         # Generate n completions using the async complete_one_async method
         tasks = [
             self.complete_one_async(completion_params)
             for _ in range(completion_params.n)
         ]
-        
+
         children = await asyncio.gather(*tasks)
         return children if len(children) > 1 else children[0]
 
-    def handle_cost(self,
-        gi: GeneratorInfo,
-        cost: float
-    ):
-        if gi.usage_tracking_type == "openrouter" and None not in [gi.usage_db, gi.usage_id_key, gi.usage_id_value, gi.usage_key]:
+    def handle_cost(self, gi: GeneratorInfo, cost: float):
+        """Handle cost tracking for openrouter."""
+        if gi.usage_tracking_type == "openrouter" and None not in [
+            gi.usage_db,
+            gi.usage_id_key,
+            gi.usage_id_value,
+            gi.usage_key,
+        ]:
             gi.usage_db.update_one(
                 {gi.usage_id_key: gi.usage_id_value},
                 {"$inc": {gi.usage_key: cost}},
             )
 
     def __chat_complete_openai(self,
-        gi: GeneratorInfo,
-        messages: List[Dict[str, str]],
-        api: OpenAI,
-        *_1, **_2
+        gi: GeneratorInfo, messages: List[Dict[str, str]], api: OpenAI, *_1, **_2
     ) -> str:
-        response: ChatCompletion = api.chat.completions.create(**get_payload(gi, messages))
+        response: ChatCompletion = api.chat.completions.create(
+            **get_payload(gi, messages)
+        )
         return response.choices[0].message.content
 
     async def __chat_complete_openai_async(self,
         gi: GeneratorInfo,
         messages: List[Dict[str, str]],
         api: AsyncOpenAI,
-        *_1, **_2
+        *_1,
+        **_2,
     ) -> str:
-        response: ChatCompletion = await api.chat.completions.create(**get_payload(gi, messages))
+        response: ChatCompletion = await api.chat.completions.create(
+            **get_payload(gi, messages)
+        )
         return response.choices[0].message.content
 
     def __chat_complete_openai_audio(self,
-        gi: GeneratorInfo,
-        messages: List[Dict[str, Any]],
-        api: OpenAI,
-        *_1, **_2
+        gi: GeneratorInfo, messages: List[Dict[str, Any]], api: OpenAI, *_1, **_2
     ) -> AudioData | str:
         response: ChatCompletion = api.chat.completions.create(
-            **get_payload(gi, messages), 
+            **get_payload(gi, messages),
             modalities=["text", "audio"],
-            audio={
-                "format": "pcm16",
-                "voice": gi.completion_parameters.voice
-            }
+            audio={"format": "pcm16", "voice": gi.completion_parameters.voice},
         )
         if response.choices[0].message.audio is None:
             return response.choices[0].message.content
@@ -707,7 +819,7 @@ class ChatNode:
             # First process the audio data and generate a temp file
             audio_file = base64_to_wav(
                 base64_data=audio.data,
-                output_folder=gi.completion_parameters.audio_output_folder
+                output_folder=gi.completion_parameters.audio_output_folder,
             )
 
             return AudioData(
@@ -715,25 +827,23 @@ class ChatNode:
                 audio_ids={
                     audio.id: {
                         "transcript": audio.transcript,
-                        "expires_at": audio.expires_at
+                        "expires_at": audio.expires_at,
                     }
                 },
-                audio_raw=audio.data
+                audio_raw=audio.data,
             )
 
     async def __chat_complete_openai_audio_async(self,
         gi: GeneratorInfo,
         messages: List[Dict[str, Any]],
         api: AsyncOpenAI,
-        *_1, **_2
+        *_1,
+        **_2,
     ) -> AudioData | str:
         response: ChatCompletion = await api.chat.completions.create(
-            **get_payload(gi, messages), 
+            **get_payload(gi, messages),
             modalities=["text", "audio"],
-            audio={
-                "format": "pcm16",
-                "voice": gi.completion_parameters.voice
-            }
+            audio={"format": "pcm16", "voice": gi.completion_parameters.voice},
         )
         if response.choices[0].message.audio is None:
             return response.choices[0].message.content
@@ -742,7 +852,7 @@ class ChatNode:
             # First process the audio data and generate a temp file
             audio_file = base64_to_wav(
                 base64_data=audio.data,
-                output_folder=gi.completion_parameters.audio_output_folder
+                output_folder=gi.completion_parameters.audio_output_folder,
             )
 
             return AudioData(
@@ -750,17 +860,18 @@ class ChatNode:
                 audio_ids={
                     audio.id: {
                         "transcript": audio.transcript,
-                        "expires_at": audio.expires_at
+                        "expires_at": audio.expires_at,
                     }
                 },
-                audio_raw=audio.data
+                audio_raw=audio.data,
             )
 
     def __chat_complete_anthropic(self,
         gi: GeneratorInfo,
         messages: List[Dict[str, str]],
         api: Anthropic,
-        *_1, **_2
+        *_1,
+        **_2,
     ) -> str:
         system_prompt = ""
         while messages[0]["role"] == "system":
@@ -771,8 +882,7 @@ class ChatNode:
         payload = get_payload(gi, messages)
 
         response: Message = api.messages.create(
-            system=system_prompt if system_prompt else None,
-            **payload
+            system=system_prompt if system_prompt else None, **payload
         )
 
         return response.content[0].text
@@ -781,7 +891,8 @@ class ChatNode:
         gi: GeneratorInfo,
         messages: List[Dict[str, str]],
         api: AsyncAnthropic,
-        *_1, **_2
+        *_1,
+        **_2,
     ) -> str:
         system_prompt = ""
         while messages[0]["role"] == "system":
@@ -792,44 +903,30 @@ class ChatNode:
         payload = get_payload(gi, messages)
 
         response: Message = await api.messages.create(
-            system=system_prompt if system_prompt else None,
-            **payload
+            system=system_prompt if system_prompt else None, **payload
         )
 
         return response.content[0].text
 
-
     def __chat_complete_mistralai(self,
-        gi: GeneratorInfo,
-        messages: List[Dict[str, str]],
-        api: Mistral,
-        *_1, **_2
+        gi: GeneratorInfo, messages: List[Dict[str, str]], api: Mistral, *_1, **_2
     ) -> str:
         response = api.chat.complete(**get_payload(gi, messages))
         return response.choices[0].message.content
-    
+
     async def __chat_complete_mistralai_async(self,
-        gi: GeneratorInfo,
-        messages: List[Dict[str, str]],
-        api: Mistral,
-        *_1, **_2
+        gi: GeneratorInfo, messages: List[Dict[str, str]], api: Mistral, *_1, **_2
     ) -> str:
         response = await api.chat.complete_async(**get_payload(gi, messages))
         return response.choices[0].message.content
 
     def __chat_complete_url(self,
-        gi: GeneratorInfo,
-        messages: List[Dict[str, str]],
-        api_url: str,
-        *_1, **_2
+        gi: GeneratorInfo, messages: List[Dict[str, str]], api_url: str, *_1, **_2
     ) -> str:
-        
+
         headers = {"Authorization": f"Bearer {gi.api_key}"}
         response = requests.post(
-            api_url,
-            headers=headers,
-            json={**get_payload(gi, messages)},
-            verify=False
+            api_url, headers=headers, json={**get_payload(gi, messages)}, verify=False, timeout=300
         )
         response_json = response.json()
 
@@ -837,31 +934,23 @@ class ChatNode:
             self.handle_cost(gi, response_json["usage"]["cost"])
 
         return validate_json_response(response_json)
-    
+
     async def __chat_complete_url_async(self,
-        gi: GeneratorInfo,
-        messages: List[Dict[str, str]],
-        api_url: str,
-        *_1, **_2
+        gi: GeneratorInfo, messages: List[Dict[str, str]], api_url: str, *_1, **_2
     ) -> str:
 
-        timeout = httpx.Timeout(
-            connect=10.0, 
-            read=300.0,
-            write=10.0,
-            pool=10.0
-        )
+        timeout = httpx.Timeout(connect=10.0, read=300.0, write=10.0, pool=10.0)
         limits = httpx.Limits(
-            max_keepalive_connections=20, 
-            max_connections=20, 
-            keepalive_expiry=30
+            max_keepalive_connections=20, max_connections=20, keepalive_expiry=30
         )
 
         headers = {"Authorization": f"Bearer {gi.api_key}"}
 
         response = None
         try:
-            async with httpx.AsyncClient(verify=False, timeout=timeout, limits=limits) as client:
+            async with httpx.AsyncClient(
+                verify=False, timeout=timeout, limits=limits
+            ) as client:
                 response = await client.post(
                     api_url,
                     headers=headers,
@@ -869,23 +958,23 @@ class ChatNode:
                 )
                 response_json = response.json()
         except httpx.ConnectTimeout as e:
-            logger.debug(f"ConnectTimeout: {e}")
+            logger.debug("ConnectTimeout: %s", e)
             raise
         except httpx.ReadTimeout as e:
-            logger.debug(f"ReadTimeout: {e}")
+            logger.debug("ReadTimeout: %s", e)
             raise
         except httpx.ConnectError as e:
-            logger.debug(f"ConnectError: {e}")
+            logger.debug("ConnectError: %s", e)
             raise
         except httpx.ReadError as e:
-            logger.debug(f"ReadError: {e}")
+            logger.debug("ReadError: %s", e)
             raise
         except Exception as e:
             error_details = {
                 "status_code": response.status_code if response else None,
                 "response_text": response.text if response else None,
                 "response_headers": dict(response.headers) if response else None,
-                "url": api_url
+                "url": api_url,
             }
             logger.error(error_details)
             raise e
@@ -900,31 +989,28 @@ class ChatNode:
         messages: List[Dict[str, str]],
         _1,
         force_prepend: str,
-        *_2, **_3
+        *_2,
+        **_3,
     ) -> str:
         if gi.hf_auto_model is None or gi.hf_processor is None:
             gi.build_hf_model()
-        
+
         inputs = hf_process_messages(
-            gi=gi, 
-            messages=messages, 
-            force_prepend=force_prepend
+            gi=gi, messages=messages, force_prepend=force_prepend
         )
 
         generate_ids = gi.hf_auto_model.generate(
-            **inputs, 
+            **inputs,
             max_new_tokens=gi.completion_parameters.max_tokens,
-            eos_token_id=gi.hf_tokenizer.eos_token_id, 
+            eos_token_id=gi.hf_tokenizer.eos_token_id,
             temperature=gi.completion_parameters.temperature,
             **gi.completion_parameters.kwargs,
         )
 
-        generate_ids = generate_ids[:, inputs['input_ids'].shape[1]:]
+        generate_ids = generate_ids[:, inputs["input_ids"].shape[1] :]
 
         decoded = gi.hf_tokenizer.batch_decode(
-            generate_ids, 
-            skip_special_tokens=True, 
-            clean_up_tokenization_spaces=False
+            generate_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False
         )[0]
 
         if force_prepend is not None:
@@ -933,21 +1019,31 @@ class ChatNode:
         return decoded
 
     if HUGGINGFACE_ACTIVATED:
+
         @torch.no_grad()
-        def hf_compute_logits(self, 
-            gi: GeneratorInfo
-        ) -> torch.Tensor:
-            assert gi._format == "hf", "hf_compute_logits should only be called for hf format"
-            
-            message_len = gi.hf_tokenizer(self.content, return_tensors="pt", padding=True).input_ids.shape[1] - 1
+        def hf_compute_logits(self, gi: GeneratorInfo) -> torch.Tensor:
+            """ Compute the logits for the current token. """
+            assert (
+                gi._format == "hf"
+            ), "hf_compute_logits should only be called for hf format"
+
+            message_len = (
+                gi.hf_tokenizer(
+                    self.content, return_tensors="pt", padding=True
+                ).input_ids.shape[1]
+                - 1
+            )
 
             messages = self.get_messages(gi=gi)
-            input_ids = self.hf_process_messages(gi=gi, messages=messages, padding=True).input_ids
-            
+            input_ids = hf_process_messages(
+                gi=gi, messages=messages, padding=True
+            ).input_ids
+
             outputs = gi.hf_auto_model(input_ids=input_ids)
             probs = torch.log_softmax(outputs.logits, dim=-1).detach()
 
-            # collect the probability of the generated token -- probability at index 0 corresponds to the token at index 1
+            # collect the probability of the generated token
+            # -- probability at index 0 corresponds to the token at index 1
             probs = probs[:, :-1, :]
             input_ids = input_ids[:, 1:]
             gen_probs = torch.gather(probs, 2, input_ids[:, :, None]).squeeze(-1)
@@ -955,15 +1051,18 @@ class ChatNode:
             return gen_probs[:, -message_len:].cpu().detach()
 
         @torch.no_grad()
-        def hf_compute_logits_average(self, 
-            gi: GeneratorInfo, 
-            quantile: float = 1, 
-            repeat_penalty: bool = True, 
-            repeat_treshold: int = 8, 
-            n_start_penalize_repeat: int = 3
+        def hf_compute_logits_average(self,
+            gi: GeneratorInfo,
+            quantile: float = 1,
+            repeat_penalty: bool = True,
+            repeat_treshold: int = 8,
+            n_start_penalize_repeat: int = 3,
         ) -> torch.Tensor:
+            """ Compute the average of the logits for the current token. """
             logits = self.hf_compute_logits(gi=gi)[0]
-            prompt_tks = gi.hf_tokenizer(self.content, return_tensors="pt").input_ids[0, 1:]
+            prompt_tks = gi.hf_tokenizer(self.content, return_tensors="pt").input_ids[
+                0, 1:
+            ]
 
             if repeat_penalty:
                 last_token_values = {}
@@ -976,43 +1075,61 @@ class ChatNode:
                         if last_i + repeat_treshold >= i:
                             if n_repeat >= n_start_penalize_repeat:
                                 logits[i] = worst_logit
-                            last_token_values[token] = (i, min(worst_logit, logit), n_repeat + 1)
+                            last_token_values[token] = (
+                                i,
+                                min(worst_logit, logit),
+                                n_repeat + 1,
+                            )
                         else:
                             last_token_values[token] = (i, logit, 0)
 
-            logits_quantile = torch.topk(logits, k=int(quantile * logits.shape[-1]), largest=False, dim=-1).values
+            logits_quantile = torch.topk(
+                logits, k=int(quantile * logits.shape[-1]), largest=False, dim=-1
+            ).values
 
-            return (torch.sum(logits_quantile, dim=-1) / logits_quantile.shape[-1]).item()
+            return (
+                torch.sum(logits_quantile, dim=-1) / logits_quantile.shape[-1]
+            ).item()
+
     else:
-        def hf_compute_logits(self, **kwargs):
-            raise NotImplementedError("hf_compute_logits should only be called for hf format, and if HUGGINGFACE_ACTIVATED is True (transformers and torch must installed)")
 
-        def hf_compute_logits_average(self, **kwargs):
-            raise NotImplementedError("hf_compute_logits_average should only be called for hf format, and if HUGGINGFACE_ACTIVATED is True (transformers and torch must installed)")
-    
+        def hf_compute_logits(self, gi: GeneratorInfo):
+            """ Compute the logits for the current token. """
+            raise NotImplementedError(
+                "hf_compute_logits should only be called for hf format, and if "
+                "HUGGINGFACE_ACTIVATED is True (transformers and torch must installed)"
+            )
+
+        def hf_compute_logits_average(self, gi: GeneratorInfo, **kwargs):
+            """ Compute the average of the logits for the current token. """
+            raise NotImplementedError(
+                "hf_compute_logits_average should only be called for hf format, and if "
+                "HUGGINGFACE_ACTIVATED is True (transformers and torch must installed)"
+            )
+
     @classmethod
-    def from_thread(cls, 
+    def from_thread(cls,
         path: str | List[str] | None = None,
-        messages: List[Dict[str, str]] | None = None
+        messages: List[Dict[str, str]] | None = None,
     ) -> ChatNode:
         """Load a thread from a JSON file or multiple JSON files, or directly from messages.
-        
+
         Args:
             path: Path to a JSON file or list of paths to JSON files.
                  If a list is provided, the threads will be merged in order.
             messages: List of message dictionaries in the format:
                      [{"role": "user", "content": "message"}, ...].
                      This is compatible with the output of get_messages().
-        
+
         Returns:
             The root node of the loaded thread
-            
+
         Raises:
             ValueError: If both path and messages are None, or if path is an empty list
         """
         if path is None and messages is None:
             raise ValueError("Either path or messages must be provided")
-            
+
         if messages is not None:
             parent = None
             for msg in messages:
@@ -1039,18 +1156,18 @@ class ChatNode:
         if isinstance(path, list):
             if not path:
                 raise ValueError("Empty list of paths provided")
-            
+
             # Load the first thread
             parent = cls.from_thread(path[0])
-            
+
             # Merge subsequent threads
             for thread_path in path[1:]:
                 parent = parent.merge(cls.from_thread(thread_path))
-            
+
             return parent
-        
+
         # Single path logic
-        data = json.load(open(path, "r"))
+        data = json.load(open(path, "r", encoding="utf-8"))
         if "required_kwargs" not in data:
             data["required_kwargs"] = {}
 
@@ -1069,10 +1186,22 @@ class ChatNode:
             current_node = ChatNode(
                 content=prompt["content"],
                 role=prompt["role"],
-                audio_data=AudioData(
-                    audio_paths=prompt["audio_data"]["audio_paths"] if "audio_paths" in prompt["audio_data"] else [],
-                    audio_ids=prompt["audio_data"]["audio_ids"] if "audio_ids" in prompt["audio_data"] else {}
-                ) if "audio_data" in prompt and prompt["audio_data"] is not None else None,
+                audio_data=(
+                    AudioData(
+                        audio_paths=(
+                            prompt["audio_data"]["audio_paths"]
+                            if "audio_paths" in prompt["audio_data"]
+                            else []
+                        ),
+                        audio_ids=(
+                            prompt["audio_data"]["audio_ids"]
+                            if "audio_ids" in prompt["audio_data"]
+                            else {}
+                        ),
+                    )
+                    if "audio_data" in prompt and prompt["audio_data"] is not None
+                    else None
+                ),
                 format_kwargs=data["required_kwargs"],
             )
 
@@ -1082,5 +1211,5 @@ class ChatNode:
                 parent = parent.add_child(current_node)
 
         return parent
-    
+
     # TODO: Add a "from_loom" method to load complex graph

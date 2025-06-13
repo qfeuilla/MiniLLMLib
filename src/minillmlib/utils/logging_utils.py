@@ -18,14 +18,14 @@ def get_logger(name: str = "minillmlib") -> logging.Logger:
     Returns:
         A Logger instance.
     """
-    global _logger
-    
+    global _logger # pylint: disable=global-statement
+
     if _logger is not None:
         return _logger
-        
+
     # Get or create logger
     logger = logging.getLogger(name)
-    
+
     # Only configure if it hasn't been configured yet
     if not logger.handlers:
         console_handler = logging.StreamHandler()
@@ -33,12 +33,12 @@ def get_logger(name: str = "minillmlib") -> logging.Logger:
 
         formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
         console_handler.setFormatter(formatter)
-        
+
         logger.addHandler(console_handler)
         logger.setLevel(logging.INFO)
 
         logging.getLogger("httpx").setLevel(logging.WARNING)
-    
+
     _logger = logger
     return logger
 
@@ -55,10 +55,10 @@ def configure_logger(
         handlers: List of handlers to use. If None, keeps current handlers.
     """
     logger = get_logger()
-    
+
     if level is not None:
         logger.setLevel(level)
-        
+
     if handlers is not None:
         # Remove existing handlers
         for handler in logger.handlers[:]:

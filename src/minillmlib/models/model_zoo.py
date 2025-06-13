@@ -1,3 +1,7 @@
+"""
+Model zoo for MiniLLMLib.
+"""
+
 import os
 
 from dotenv import load_dotenv
@@ -72,23 +76,28 @@ openai_audio = {
 }
 
 openrouter = {}
-for model_name, uri, providers in [
-    ("hermes-405b", "nousresearch/hermes-3-llama-3.1-405b", None),
-    ("deepseek-v3", "deepseek/deepseek-chat", None),
-    ("deepseek-v3-0324", "deepseek/deepseek-chat-v3-0324", ["SambaNova", "Parasail", "Novita", "DeepInfra"]),
-    ("mistral-7b-instruct", "mistralai/mistral-7b-instruct", None),
-    ("claude-3.7-sonnet", "anthropic/claude-3.7-sonnet", None)
-]:
+# Removing SambaNova because it cost a lot
+for model_name, uri, providers, exclude_providers in [
+    ("hermes-405b", "nousresearch/hermes-3-llama-3.1-405b", None, ["SambaNova"]),
+    ("deepseek-v3", "deepseek/deepseek-chat", None, ["SambaNova"]),
+    ("deepseek-v3-0324", "deepseek/deepseek-chat-v3-0324", None, ["SambaNova"]),
+    ("mistral-7b-instruct", "mistralai/mistral-7b-instruct", None, ["SambaNova"]),
+    ("claude-3.7-sonnet", "anthropic/claude-3.7-sonnet", None, ["SambaNova"])]:
+
     provider_settings = { "data_collection": "deny"}
+
     if providers is not None:
         provider_settings["order"] = providers
     else:
         provider_settings["sort"] = "throughput"
 
+    if exclude_providers is not None:
+        provider_settings["ignore"] = exclude_providers
+
     openrouter[model_name] = GeneratorInfo(
         model=uri,
         _format="url",
-        api_url=f"https://openrouter.ai/api/v1/chat/completions",
+        api_url="https://openrouter.ai/api/v1/chat/completions",
         api_key=os.getenv("OPENROUTER_API_KEY"),
         completion_parameters=GeneratorCompletionParameters(
             provider=provider_settings
@@ -136,7 +145,7 @@ for model_name, uri in [
     bet_leaderboard_v1[model_name] = GeneratorInfo(
         model=uri,
         _format="url",
-        api_url=f"https://openrouter.ai/api/v1/chat/completions",
+        api_url="https://openrouter.ai/api/v1/chat/completions",
         api_key=os.getenv("OPENROUTER_API_KEY"),
         completion_parameters=GeneratorCompletionParameters(
             provider={
