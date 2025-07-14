@@ -20,7 +20,7 @@ from mistralai import Mistral
 from openai import AsyncOpenAI, OpenAI
 from openai.types.chat import ChatCompletion
 
-from ..models.generator_info import (HUGGINGFACE_ACTIVATED, GeneratorInfo,
+from ..models.generator_info import (HUGGINGFACE_ACTIVATED, GeneratorCompletionParameters, GeneratorInfo,
                                      pretty_messages, torch)
 from ..utils.json_utils import extract_json_from_completion, to_dict
 from ..utils.logging_utils import get_logger
@@ -1180,7 +1180,7 @@ class ChatNode:
                     "Here is the part to summarize:\n==========\n"
                 )
                 prompt_json = (
-                    "\n==========\nEnd of the part to summarize.\n\nNow answer in this JSON format: { 'brainstorming': '[short brainstorming about how to summarize efficiently]', 'summary': '[your summary]'}"
+                    "\n==========\nEnd of the part to summarize. Note that there can be other summary in thise part to summarize, make sure to include what is in the previous summary in your current summary. Try to remove as little information as possible, you can write a long summary.\n\nNow answer in this JSON format: { 'brainstorming': '[short brainstorming about how to summarize efficiently]', 'summary': '[your summary]'}"
                 )
                 # Build the summarizer thread
                 summarizer = ChatNode(prompt_intro, role="system")
@@ -1191,7 +1191,10 @@ class ChatNode:
 
                 summary_comp = await summarizer.complete_async(NodeCompletionParameters(
                     gi=gi,
-                    parse_json=True
+                    parse_json=True,
+                    generation_parameters=GeneratorCompletionParameters(
+                        max_tokens=2048,
+                    )
                 ))
                 summary_str = json.loads(summary_comp.content)["summary"]
 

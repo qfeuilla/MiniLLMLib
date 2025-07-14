@@ -93,3 +93,16 @@ print(response.content)
 ---
 
 For more, see the full documentation at [minillmlib.readthedocs.io](https://minillmlib.readthedocs.io/) or open an issue on [GitHub](https://github.com/qfeuilla/MiniLLMLib) if you need help.
+
+---
+
+### Release Tagging Reminder
+_(for maintainers use)_
+
+To push a new release tag:
+```bash
+git add <files you changed>
+git commit -m "<your message>"
+git tag v<NEW_VERSION> -m "Release v<NEW_VERSION>: <short description>"
+git push origin main --tags
+```
