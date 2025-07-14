@@ -37,7 +37,7 @@ class TestChatNode(unittest.IsolatedAsyncioTestCase):
         n5 = n4.add_child(ChatNode(content="user3", role="user"))
 
         # Collapse keeping first 2 and last 2
-        last = await n5.collapse_thread(keep_last_n=2, keep_n=4, gi=None)
+        last, _ = await n5.collapse_thread(keep_last_n=2, keep_n=4, gi=None)
         # Walk the new thread
         thread = []
         node = last
@@ -70,7 +70,7 @@ class TestChatNode(unittest.IsolatedAsyncioTestCase):
         # Patch complete_async to return a node with the fake summary
         with patch.object(ChatNode, "complete_async", new_callable=AsyncMock) as mock_complete_async:
             mock_complete_async.return_value = ChatNode(content='{"summary": "%s"}' % fake_summary, role="assistant")
-            last = await n5.collapse_thread(keep_last_n=2, keep_n=4, gi=gi)
+            last, _ = await n5.collapse_thread(keep_last_n=2, keep_n=4, gi=gi)
         # Walk the new thread
         thread = []
         node = last
@@ -103,7 +103,7 @@ class TestChatNode(unittest.IsolatedAsyncioTestCase):
 
         # 1. keep_n >= thread length (should return full thread, no marker)
         root, last = build_thread(5)
-        out = await last.collapse_thread(keep_last_n=2, keep_n=10, gi=None)
+        out, _ = await last.collapse_thread(keep_last_n=2, keep_n=10, gi=None)
         # Walk
         nodes = []
         node = out
@@ -116,7 +116,7 @@ class TestChatNode(unittest.IsolatedAsyncioTestCase):
 
         # 2. keep_last_n >= thread length (should return full thread, no marker)
         root, last = build_thread(5)
-        out = await last.collapse_thread(keep_last_n=5, keep_n=2, gi=None)
+        out, _ = await last.collapse_thread(keep_last_n=5, keep_n=2, gi=None)
         nodes = []
         node = out
         while node:
@@ -128,7 +128,7 @@ class TestChatNode(unittest.IsolatedAsyncioTestCase):
 
         # 3. keep_n < 2 (should keep at least root and last, or just last)
         root, last = build_thread(5)
-        out = await last.collapse_thread(keep_last_n=1, keep_n=1, gi=None)
+        out, _ = await last.collapse_thread(keep_last_n=1, keep_n=1, gi=None)
         nodes = []
         node = out
         while node:
@@ -141,14 +141,14 @@ class TestChatNode(unittest.IsolatedAsyncioTestCase):
 
         # 4. Thread of length 1 (single node)
         root = ChatNode(content="root", role="system")
-        out = await root.collapse_thread(keep_last_n=1, keep_n=1, gi=None)
+        out, _ = await root.collapse_thread(keep_last_n=1, keep_n=1, gi=None)
         self.assertEqual(out.content, "root")
         self.assertIsNone(out._parent)
         self.assertEqual(out.children, [])
 
         # 5. keep_last_n = 0 (should keep only first nodes)
         root, last = build_thread(5)
-        out = await last.collapse_thread(keep_last_n=0, keep_n=2, gi=None)
+        out, _ = await last.collapse_thread(keep_last_n=0, keep_n=2, gi=None)
         nodes = []
         node = out
         while node:
@@ -162,7 +162,7 @@ class TestChatNode(unittest.IsolatedAsyncioTestCase):
 
         # 6. keep_n = 0 (should fallback to deepcopy of self)
         root, last = build_thread(5)
-        out = await last.collapse_thread(keep_last_n=0, keep_n=0, gi=None)
+        out, _ = await last.collapse_thread(keep_last_n=0, keep_n=0, gi=None)
         self.assertIsNone(out._parent)
         self.assertEqual(out.children, [])
 

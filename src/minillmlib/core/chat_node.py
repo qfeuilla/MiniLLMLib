@@ -1103,7 +1103,7 @@ class ChatNode:
         keep_last_n: int,
         keep_n: int,
         gi: Optional[GeneratorInfo] = None,
-    ) -> ChatNode:
+    ) -> Tuple[ChatNode, Optional[ChatNode]]:
         """
         Collapse the thread, keeping the first (keep_n - keep_last_n) nodes, the last keep_last_n nodes,
         and summarizing or marking the collapsed part as needed. Returns the last node of the collapsed thread.
@@ -1224,12 +1224,12 @@ class ChatNode:
 
         # Return the last node (deepcopy of self if it was kept, or the last node in last_nodes_cp)
         if last_nodes_cp:
-            return last_nodes_cp[-1]
+            return last_nodes_cp[-1], truncate_marker_node
         elif new_thread:
-            return new_thread[-1]
+            return new_thread[-1], truncate_marker_node
         else:
             # fallback: return a deepcopy of self
-            return copy.deepcopy(self)
+            return copy.deepcopy(self), truncate_marker_node
 
     @classmethod
     def from_thread(cls,
