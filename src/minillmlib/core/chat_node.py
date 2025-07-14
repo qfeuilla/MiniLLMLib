@@ -1165,6 +1165,8 @@ class ChatNode:
                 ]
                 truncated_thread = ChatNode.from_thread(messages=truncated_msgs)
 
+                original_thread = ChatNode.from_thread(messages=self.get_messages(gi=gi))
+
                 # Compose the summarization prompt as described by the user
                 prompt_intro = (
                     "Conversation truncated. Here is a conversation between a user and an assistant.\n"
@@ -1182,7 +1184,7 @@ class ChatNode:
                 )
                 # Build the summarizer thread
                 summarizer = ChatNode(prompt_intro, role="system")
-                summarizer = summarizer.merge(self)
+                summarizer = summarizer.merge(original_thread)
                 summarizer = summarizer.add_child(ChatNode(prompt_outro, role="assistant"))
                 summarizer = summarizer.merge(truncated_thread)
                 summarizer = summarizer.add_child(ChatNode(prompt_json, role="assistant"))
