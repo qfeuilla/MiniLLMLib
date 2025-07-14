@@ -25,6 +25,6 @@ def to_dict(item: Any) -> Dict[Any, Any]:
     else:
         return item
 
-def extract_json_from_completion(completion: str) -> Dict:
+def extract_json_from_completion(completion: str) -> str:
     """Extract and parse JSON from completion string."""
     return json.dumps(json.loads(json_repair.repair_json(completion)))

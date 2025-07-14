@@ -164,6 +164,49 @@ MiniLLMLib provides several ways to generate completions from a `ChatNode`:
 | `complete_one_async(gi)`| Async      | Single ChatNode        | Async single response                          |
 | `complete_async(gi)`    | Async      | List[ChatNode] or ChatNode (if `n` is 1)        | Async all completions                          |
 
+---
+
+## Collapsing (Truncating or Summarizing) Chat Threads
+
+MiniLLMLib provides an advanced method for managing long chat threads: `ChatNode.collapse_thread`. This asynchronous method lets you keep only the most relevant parts of a conversation, either by truncating (removing the middle) or summarizing it with an LLM.
+
+### Method Signature
+```python
+collapsed = await chat.collapse_thread(keep_last_n, keep_n, gi=None)
+```
+- `keep_last_n` (int): Number of most recent nodes to keep (from the current node backward).
+- `keep_n` (int): Total number of nodes to keep in the thread (including the start and end).
+- `gi` (GeneratorInfo | None): If provided, summarizes the truncated section using the model; if None, inserts a prominent truncation marker node.
+
+### Modes
+- **Truncation (gi=None):**
+  - Middle nodes are replaced by a visually prominent marker node (role="assistant") indicating that a section was truncated.
+  - Example:
+    ```python
+    collapsed = await chat.collapse_thread(keep_last_n=3, keep_n=6, gi=None)
+    ```
+- **Summarization (gi=GeneratorInfo):**
+  - Middle nodes are summarized using the provided generator. A summary node (role="assistant") is inserted, prefixed with a clear message (e.g., "Conversation truncated. Summary of the truncated conversation:").
+  - Example:
+    ```python
+    collapsed = await chat.collapse_thread(keep_last_n=3, keep_n=6, gi=gi)
+    ```
+
+### Behavior and Edge Cases
+- If the thread is shorter than `keep_n` or `keep_last_n`, no truncation occurs.
+- If `keep_n` < 2, only the last node is kept.
+- If `keep_last_n` = 0, only the start nodes are kept (up to `keep_n`).
+- The method always returns the last node of the collapsed thread.
+- The summary/truncation node never inherits metadata or formatting from the truncated section.
+
+### Best Practices
+- Use truncation for efficiency or when summarization is not needed.
+- Use summarization to preserve context for the model when removing large sections.
+- Always use `await` as this method is asynchronous (especially when summarizing).
+
+See tests for more advanced usage and edge case handling.
+
+
 - For simple use, you can pass a `GeneratorInfo` (`gi`) directly. Use `NodeCompletionParameters` only for advanced options.
 - If you want to override defaults or use advanced features, wrap with `NodeCompletionParameters`:
   ```python

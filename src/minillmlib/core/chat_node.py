@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import os
 import time
@@ -19,25 +20,16 @@ from mistralai import Mistral
 from openai import AsyncOpenAI, OpenAI
 from openai.types.chat import ChatCompletion
 
-from ..models.generator_info import (
-    HUGGINGFACE_ACTIVATED,
-    GeneratorInfo,
-    pretty_messages,
-    torch,
-)
+from ..models.generator_info import (HUGGINGFACE_ACTIVATED, GeneratorInfo,
+                                     pretty_messages, torch)
 from ..utils.json_utils import extract_json_from_completion, to_dict
 from ..utils.logging_utils import get_logger
-from ..utils.message_utils import (
-    AudioData,
-    NodeCompletionParameters,
-    base64_to_wav,
-    format_prompt,
-    get_payload,
-    hf_process_messages,
-    merge_contiguous_messages,
-    process_audio_for_completion,
-    validate_json_response,
-)
+from ..utils.message_utils import (AudioData, NodeCompletionParameters,
+                                   base64_to_wav, format_prompt, get_payload,
+                                   hf_process_messages,
+                                   merge_contiguous_messages,
+                                   process_audio_for_completion,
+                                   validate_json_response)
 
 warnings.filterwarnings("ignore", message=".*verification is strongly advised.*")
 
@@ -1106,6 +1098,136 @@ class ChatNode:
                 "hf_compute_logits_average should only be called for hf format, and if "
                 "HUGGINGFACE_ACTIVATED is True (transformers and torch must installed)"
             )
+
+    async def collapse_thread(self,
+        keep_last_n: int,
+        keep_n: int,
+        gi: Optional[GeneratorInfo] = None,
+    ) -> ChatNode:
+        """
+        Collapse the thread, keeping the first (keep_n - keep_last_n) nodes, the last keep_last_n nodes,
+        and summarizing or marking the collapsed part as needed. Returns the last node of the collapsed thread.
+        """
+        
+        # 1. Collect the thread from root to self
+        thread: list[ChatNode] = []
+        node = self
+        while node is not None:
+            thread.append(node)
+            node = node._parent
+        thread.reverse()  # root to leaf (self)
+        
+        N = len(thread)
+
+        if keep_n <= keep_last_n:
+            keep_first = 0
+            keep_last = min(keep_last_n, N)
+        else:
+            keep_first = min(keep_n - keep_last_n, N)
+            keep_last = min(keep_last_n, N - keep_first)
+
+        # Indices:
+        # [0:keep_first] (kept)
+        # [keep_first:N-keep_last] (collapsed)
+        # [N-keep_last:N] (kept)
+        first_nodes = thread[:keep_first]
+        last_nodes = thread[N-keep_last:] if keep_last > 0 else []
+        truncated_nodes = thread[keep_first:N-keep_last] if N-keep_last > keep_first else []
+
+        # Deepcopy all nodes to avoid modifying originals
+        first_nodes_cp = [copy.deepcopy(n) for n in first_nodes]
+        last_nodes_cp = [copy.deepcopy(n) for n in last_nodes]
+
+        # Build the new thread
+        new_thread = []
+        new_thread.extend(first_nodes_cp)
+
+        # Insert summary or truncate marker if there are truncated nodes
+        truncate_marker_node = None
+        if truncated_nodes:
+            if gi is None:
+                # Insert a marker node
+                truncate_marker_node = ChatNode(
+                    content="""
+==================== **truncated** ====================
+
+[This part of the conversation was **truncated** for length.]
+
+===================================================
+""",
+                    role="assistant"
+                )
+            else:
+                # Summarize the truncated nodes using gi
+                # Prepare the truncated part as a thread
+                truncated_msgs = [
+                    {"role": n.role, "content": n.content} for n in truncated_nodes
+                ]
+                truncated_thread = ChatNode.from_thread(messages=truncated_msgs)
+
+                # Compose the summarization prompt as described by the user
+                prompt_intro = (
+                    "Conversation truncated. Here is a conversation between a user and an assistant.\n"
+                    "==========\n"
+                )
+                prompt_outro = (
+                    "\n==========\n\nCurrent end of the conversation. "
+                    "Your task is to write a summary of the following part of the conversation. "
+                    "The rest will keep existing, this part will be replaced by your summary. "
+                    "Remember to keep the same language as the text you have to summarize. "
+                    "Here is the part to summarize:\n==========\n"
+                )
+                prompt_json = (
+                    "\n==========\nEnd of the part to summarize.\n\nNow answer in this JSON format: { 'brainstorming': '[short brainstorming about how to summarize efficiently]', 'summary': '[your summary]'}"
+                )
+                # Build the summarizer thread
+                summarizer = ChatNode(prompt_intro, role="system")
+                summarizer = summarizer.merge(self)
+                summarizer = summarizer.add_child(ChatNode(prompt_outro, role="assistant"))
+                summarizer = summarizer.merge(truncated_thread)
+                summarizer = summarizer.add_child(ChatNode(prompt_json, role="assistant"))
+
+                summary_comp = await summarizer.complete_async(NodeCompletionParameters(
+                    gi=gi,
+                    parse_json=True
+                ))
+                summary_str = json.loads(summary_comp.content)["summary"]
+
+                truncate_marker_node = ChatNode(
+                    content="""
+==================== **truncated** ====================
+
+[This part of the conversation was **truncated** for length.]
+
+-------------------- **summary** ----------------------
+
+""" + summary_str + """
+
+===================================================
+""",
+                    role="assistant"
+                )
+            new_thread.append(truncate_marker_node)
+
+        new_thread.extend(last_nodes_cp)
+
+        # Re-link the thread (parent/child)
+        for i in range(1, len(new_thread)):
+            new_thread[i-1].children = [new_thread[i]]
+            new_thread[i]._parent = new_thread[i-1]
+
+        if new_thread:
+            new_thread[0]._parent = None
+            new_thread[-1].children = []
+
+        # Return the last node (deepcopy of self if it was kept, or the last node in last_nodes_cp)
+        if last_nodes_cp:
+            return last_nodes_cp[-1]
+        elif new_thread:
+            return new_thread[-1]
+        else:
+            # fallback: return a deepcopy of self
+            return copy.deepcopy(self)
 
     @classmethod
     def from_thread(cls,

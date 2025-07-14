@@ -26,6 +26,146 @@ def make_mock_anthropic_response(content):
 class TestChatNode(unittest.IsolatedAsyncioTestCase):
     """Test ChatNode class."""
 
+    async def test_collapse_thread_truncate(self):
+        """Test collapse_thread with truncation marker (no summary)."""
+        # Build a thread: root -> u1 -> a1 -> u2 -> a2 -> u3
+        root = ChatNode(content="system", role="system")
+        n1 = root.add_child(ChatNode(content="user1", role="user"))
+        n2 = n1.add_child(ChatNode(content="assistant1", role="assistant"))
+        n3 = n2.add_child(ChatNode(content="user2", role="user"))
+        n4 = n3.add_child(ChatNode(content="assistant2", role="assistant"))
+        n5 = n4.add_child(ChatNode(content="user3", role="user"))
+
+        # Collapse keeping first 2 and last 2
+        last = await n5.collapse_thread(keep_last_n=2, keep_n=4, gi=None)
+        # Walk the new thread
+        thread = []
+        node = last
+        while node:
+            thread.append(node)
+            node = node._parent
+        thread = thread[::-1]
+        self.assertEqual(len(thread), 5)
+        self.assertEqual(thread[0].content, "system")
+        self.assertEqual(thread[1].content, "user1")
+        # The marker node
+        self.assertIn("truncated", thread[2].content.lower())
+        self.assertEqual(thread[2].role, "assistant")
+        self.assertEqual(thread[4].content, "user3")
+        self.assertIsNone(thread[0]._parent)
+        self.assertEqual(thread[-1].children, [])
+
+    async def test_collapse_thread_summary(self):
+        """Test collapse_thread with summarization (mocked complete_async)."""
+        # Build a thread: root -> u1 -> a1 -> u2 -> a2 -> u3
+        root = ChatNode(content="system", role="system")
+        n1 = root.add_child(ChatNode(content="user1", role="user"))
+        n2 = n1.add_child(ChatNode(content="assistant1", role="assistant"))
+        n3 = n2.add_child(ChatNode(content="user2", role="user"))
+        n4 = n3.add_child(ChatNode(content="assistant2", role="assistant"))
+        n5 = n4.add_child(ChatNode(content="user3", role="user"))
+
+        fake_summary = "This is a fake summary."
+        gi = GeneratorInfo(model="test-model", _format="openai", api_key="test-key")
+        # Patch complete_async to return a node with the fake summary
+        with patch.object(ChatNode, "complete_async", new_callable=AsyncMock) as mock_complete_async:
+            mock_complete_async.return_value = ChatNode(content='{"summary": "%s"}' % fake_summary, role="assistant")
+            last = await n5.collapse_thread(keep_last_n=2, keep_n=4, gi=gi)
+        # Walk the new thread
+        thread = []
+        node = last
+        while node:
+            thread.append(node)
+            node = node._parent
+        thread = thread[::-1]
+        self.assertEqual(len(thread), 5)
+        self.assertEqual(thread[0].content, "system")
+        self.assertEqual(thread[1].content, "user1")
+        # The summary marker node
+        self.assertIn("truncated", thread[2].content.lower())
+        self.assertIn("summary", thread[2].content.lower())
+        self.assertIn(fake_summary, thread[2].content)
+        self.assertEqual(thread[2].role, "assistant")
+        self.assertEqual(thread[3].content, "assistant2")
+        self.assertEqual(thread[4].content, "user3")
+        self.assertIsNone(thread[0]._parent)
+        self.assertEqual(thread[-1].children, [])
+
+    async def test_collapse_thread_edge_cases(self):
+        """Test edge cases for collapse_thread."""
+        # Helper to build a thread of given length
+        def build_thread(length):
+            root = ChatNode(content="system", role="system")
+            prev = root
+            for i in range(1, length):
+                prev = prev.add_child(ChatNode(content=f"node{i}", role="user" if i % 2 else "assistant"))
+            return root, prev
+
+        # 1. keep_n >= thread length (should return full thread, no marker)
+        root, last = build_thread(5)
+        out = await last.collapse_thread(keep_last_n=2, keep_n=10, gi=None)
+        # Walk
+        nodes = []
+        node = out
+        while node:
+            nodes.append(node)
+            node = node._parent
+        nodes = nodes[::-1]
+        self.assertEqual(len(nodes), 5)
+        self.assertNotIn("truncated", "".join(n.content for n in nodes).lower())
+
+        # 2. keep_last_n >= thread length (should return full thread, no marker)
+        root, last = build_thread(5)
+        out = await last.collapse_thread(keep_last_n=5, keep_n=2, gi=None)
+        nodes = []
+        node = out
+        while node:
+            nodes.append(node)
+            node = node._parent
+        nodes = nodes[::-1]
+        self.assertEqual(len(nodes), 5)
+        self.assertNotIn("truncated", "".join(n.content for n in nodes).lower())
+
+        # 3. keep_n < 2 (should keep at least root and last, or just last)
+        root, last = build_thread(5)
+        out = await last.collapse_thread(keep_last_n=1, keep_n=1, gi=None)
+        nodes = []
+        node = out
+        while node:
+            nodes.append(node)
+            node = node._parent
+        nodes = nodes[::-1]
+        self.assertGreaterEqual(len(nodes), 1)
+        # If only last node is kept, should be user node
+        self.assertEqual(nodes[-1].content, "node4")
+
+        # 4. Thread of length 1 (single node)
+        root = ChatNode(content="root", role="system")
+        out = await root.collapse_thread(keep_last_n=1, keep_n=1, gi=None)
+        self.assertEqual(out.content, "root")
+        self.assertIsNone(out._parent)
+        self.assertEqual(out.children, [])
+
+        # 5. keep_last_n = 0 (should keep only first nodes)
+        root, last = build_thread(5)
+        out = await last.collapse_thread(keep_last_n=0, keep_n=2, gi=None)
+        nodes = []
+        node = out
+        while node:
+            nodes.append(node)
+            node = node._parent
+        nodes = nodes[::-1]
+        self.assertEqual(len(nodes), 3)
+        self.assertEqual(nodes[0].content, "system")
+        self.assertEqual(nodes[1].content, "node1")
+        self.assertIn("truncated", nodes[2].content.lower())
+
+        # 6. keep_n = 0 (should fallback to deepcopy of self)
+        root, last = build_thread(5)
+        out = await last.collapse_thread(keep_last_n=0, keep_n=0, gi=None)
+        self.assertIsNone(out._parent)
+        self.assertEqual(out.children, [])
+
     def test_detach_child(self):
         """Test detaching a child node from its parent."""
         parent_node = ChatNode(content="Parent", role="system")
