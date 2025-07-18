@@ -916,7 +916,11 @@ class ChatNode:
         gi: GeneratorInfo, messages: List[Dict[str, str]], api_url: str, *_1, **_2
     ) -> str:
 
-        headers = {"Authorization": f"Bearer {gi.api_key}"}
+        if gi.custom_header is not None:
+            headers = {gi.custom_header: f"{gi.api_key}"}
+        else:
+            headers = {"Authorization": f"Bearer {gi.api_key}"}
+
         response = requests.post(
             api_url, headers=headers, json={**get_payload(gi, messages)}, verify=False, timeout=300
         )
@@ -936,7 +940,10 @@ class ChatNode:
             max_keepalive_connections=20, max_connections=20, keepalive_expiry=30
         )
 
-        headers = {"Authorization": f"Bearer {gi.api_key}"}
+        if gi.custom_header is not None:
+            headers = {gi.custom_header: f"{gi.api_key}"}
+        else:
+            headers = {"Authorization": f"Bearer {gi.api_key}"}
 
         response = None
         try:

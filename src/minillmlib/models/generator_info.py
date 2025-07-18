@@ -116,6 +116,9 @@ class GeneratorInfo:
     usage_id_value: str | None = None
     usage_key: str | None = None
 
+    # Custom Authorization Header
+    custom_header: Optional[str] = None
+
     # HuggingFace
     hf_model_kwargs: Dict[str, Any] = field(default_factory=dict)
     hf_process_kwargs: Dict[str, Any] = field(default_factory=dict)
@@ -172,6 +175,7 @@ class GeneratorInfo:
             and self.enforce_json_compatible_prompt == value.enforce_json_compatible_prompt
             and self.no_system == value.no_system
             and self.translation_table == value.translation_table
+            and self.custom_header == value.custom_header
         )
 
     def __hash__(self) -> int:
@@ -187,7 +191,8 @@ class GeneratorInfo:
             self.force_merge,
             self.enforce_json_compatible_prompt,
             self.no_system,
-            self.translation_table
+            self.translation_table,
+            self.custom_header
         ))
 
     def deepcopy(self) -> GeneratorInfo:
