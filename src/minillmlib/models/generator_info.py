@@ -115,6 +115,7 @@ class GeneratorInfo:
     usage_id_key: str | None = None
     usage_id_value: str | None = None
     usage_key: str | None = None
+    usage_kwargs: Dict[str, Any] | None = None
 
     # Custom Authorization Header
     custom_header: Optional[str] = None

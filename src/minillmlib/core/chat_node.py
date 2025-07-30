@@ -764,7 +764,7 @@ class ChatNode:
         return children if len(children) > 1 else children[0]
 
     def handle_cost(self, gi: GeneratorInfo, cost: float):
-        """Handle cost tracking for openrouter."""
+        """Handle cost tracking"""
         if gi.usage_tracking_type == "openrouter" and None not in [
             gi.usage_db,
             gi.usage_id_key,
@@ -774,6 +774,19 @@ class ChatNode:
             gi.usage_db.update_one(
                 {gi.usage_id_key: gi.usage_id_value},
                 {"$inc": {gi.usage_key: cost}},
+            )
+        elif gi.usage_tracking_type == "openrouter-insert" and None not in [
+            gi.usage_db,
+            gi.usage_key,
+            gi.usage_kwargs
+        ]:
+            gi.usage_db.insert_one({
+                gi.usage_key: cost,
+                **gi.usage_kwargs
+            })
+        else:
+            logger.warning(
+                f"Usage tracking type {gi.usage_tracking_type} not supported, or you are missing some parameters"
             )
 
     def __chat_complete_openai(self,
@@ -926,7 +939,7 @@ class ChatNode:
         )
         response_json = response.json()
 
-        if gi.usage_tracking_type is not None:
+        if gi.usage_tracking_type in ["openrouter", "openrouter-insert"]:
             self.handle_cost(gi, response_json["usage"]["cost"])
 
         return validate_json_response(response_json)
@@ -978,7 +991,7 @@ class ChatNode:
             logger.error(error_details)
             raise e
 
-        if gi.usage_tracking_type is not None:
+        if gi.usage_tracking_type in ["openrouter", "openrouter-insert"]:
             self.handle_cost(gi, response_json["usage"]["cost"])
 
         return validate_json_response(response_json)
