@@ -24,11 +24,12 @@ from ..models.generator_info import (HUGGINGFACE_ACTIVATED, GeneratorCompletionP
                                      pretty_messages, torch)
 from ..utils.json_utils import extract_json_from_completion, to_dict
 from ..utils.logging_utils import get_logger
-from ..utils.message_utils import (AudioData, NodeCompletionParameters,
+from ..utils.message_utils import (AudioData, ImageData, NodeCompletionParameters,
                                    base64_to_wav, format_prompt, get_payload,
                                    hf_process_messages,
                                    merge_contiguous_messages,
                                    process_audio_for_completion,
+                                   process_images_for_completion,
                                    validate_json_response)
 
 warnings.filterwarnings("ignore", message=".*verification is strongly advised.*")
@@ -74,6 +75,7 @@ class ChatNode:
         content: Optional[str] = None,
         role: str = "user",
         audio_data: Optional[AudioData] = None,
+        image_data: Optional[ImageData] = None,
         format_kwargs: Optional[Dict[str, Any]] = None,
     ):
         """Initialize a ChatNode.
@@ -82,13 +84,20 @@ class ChatNode:
             content: Optional textual content of the message
             role: Role of the message sender (user/assistant/system/base)
             audio_data: Optional audio data
+            image_data: Optional image data
             format_kwargs: Optional formatting arguments for the content
         """
-        # NOTE (design choice): For now audio and content will be stored in separate nodes
-        if (content is None) == (audio_data is None):
+        # NOTE (design choice): For now audio/image and content will be stored in separate nodes
+        # Allow content + image_data together for multimodal messages
+        data_count = sum(x is not None for x in [content, audio_data, image_data])
+        if data_count == 0:
             raise ValueError(
-                "content xor audio_data must be provided, audio and content "
-                "must be sent in separate nodes in the correct order"
+                "At least one of content, audio_data, or image_data must be provided"
+            )
+        if audio_data is not None and (content is not None or image_data is not None):
+            raise ValueError(
+                "audio_data cannot be combined with content or image_data, "
+                "audio must be sent in separate nodes"
             )
 
         if role not in [
@@ -115,6 +124,7 @@ class ChatNode:
         }
 
         self.audio_data: Optional[AudioData] = audio_data
+        self.image_data: Optional[ImageData] = image_data
 
     def is_root(self) -> bool:
         """Check if this node is the root of the tree."""
@@ -212,6 +222,7 @@ class ChatNode:
                     "role": current.role,
                     "content": content,
                     "audio_data": current.audio_data,
+                    "image_data": current.image_data,
                 }
             )
             current = current._parent
@@ -230,37 +241,65 @@ class ChatNode:
         )
 
         # Choose the correct formatting depending on the gi _format
-        # Opt 1: Remove the audio from the messages
+        # Opt 1: Handle multimodal content for OpenAI/OpenRouter format
         if gi._format in ["openai", "anthropic", "url", "mistralai", "hf"]:
             new_messages = []
             for message in messages:
-                content = ""
-
-                if message["audio_data"] is not None:
-                    for _id, data in message["audio_data"].audio_ids.items():
-                        # If there is a transcript, use it for the content
-                        if data["transcript"] is not None:
-                            content += "\n" + data["transcript"]
-                        else:
-                            content += (
-                                f"\n*The {message['role']} attempted to provide an audio here, "
-                                "but there is not transcription available*"
-                            )
-
-                    # TODO: Maybe use a transcription tool on the file
-                    if (
-                        message["role"] != "assistant"
-                        and len(message["audio_data"].audio_paths) > 0
-                    ):
-                        content += (
-                            f"\n*The {message['role']} provided "
-                            f"{len(message['audio_data'].audio_paths)} audio, "
-                            "but there is not transcriptions available*"
-                        )
+                # Handle multimodal content (text + images) for OpenAI/OpenRouter
+                if gi._format in ["openai", "url"] and message["image_data"] is not None:
+                    # Create content array for multimodal messages
+                    content_array = []
+                    
+                    # Add text content if present
+                    if message["content"] is not None:
+                        content_array.append({
+                            "type": "text",
+                            "text": message["content"]
+                        })
+                    
+                    # Add image content
+                    image_contents = process_images_for_completion(message["image_data"])
+                    content_array.extend(image_contents)
+                    
+                    new_messages.append({
+                        "role": message["role"], 
+                        "content": content_array
+                    })
                 else:
-                    content = message["content"]
+                    # Handle text-only and audio content (existing logic)
+                    content = ""
 
-                new_messages.append({"role": message["role"], "content": content})
+                    if message["audio_data"] is not None:
+                        for _id, data in message["audio_data"].audio_ids.items():
+                            # If there is a transcript, use it for the content
+                            if data["transcript"] is not None:
+                                content += "\n" + data["transcript"]
+                            else:
+                                content += (
+                                    f"\n*The {message['role']} attempted to provide an audio here, "
+                                    "but there is not transcription available*"
+                                )
+
+                        # TODO: Maybe use a transcription tool on the file
+                        if (
+                            message["role"] != "assistant"
+                            and len(message["audio_data"].audio_paths) > 0
+                        ):
+                            content += (
+                                f"\n*The {message['role']} provided "
+                                f"{len(message['audio_data'].audio_paths)} audio, "
+                                "but there is not transcriptions available*"
+                            )
+                    elif message["image_data"] is not None:
+                        # For non-multimodal formats, describe images as text
+                        content = message["content"] or ""
+                        image_count = len(message["image_data"].images)
+                        if image_count > 0:
+                            content += f"\n*The {message['role']} provided {image_count} image(s), but this model format doesn't support images*"
+                    else:
+                        content = message["content"]
+
+                    new_messages.append({"role": message["role"], "content": content})
 
             messages = new_messages
 
@@ -407,6 +446,13 @@ class ChatNode:
                                 "audio_ids": node.audio_data.audio_ids,
                             }
                             if node.audio_data is not None
+                            else None
+                        ),
+                        "image_data": (
+                            {
+                                "images": node.image_data.images,
+                            }
+                            if node.image_data is not None
                             else None
                         ),
                     }
@@ -1347,6 +1393,13 @@ class ChatNode:
                         ),
                     )
                     if "audio_data" in prompt and prompt["audio_data"] is not None
+                    else None
+                ),
+                image_data=(
+                    ImageData(
+                        images=prompt["image_data"]["images"]
+                    )
+                    if "image_data" in prompt and prompt["image_data"] is not None
                     else None
                 ),
                 format_kwargs=data["required_kwargs"],

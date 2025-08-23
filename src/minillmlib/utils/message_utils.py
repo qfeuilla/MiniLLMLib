@@ -39,6 +39,52 @@ class AudioData:
 
         return new_audio
 
+
+@dataclass
+class ImageData:
+    """ Image data container. """
+
+    images: List[str] = field(default_factory=list)
+    # '-> Can contain URLs, local file paths, or base64 data URLs
+    # The library will automatically detect and handle each type
+
+    def merge(self,
+        other: 'ImageData'
+    ) -> 'ImageData':
+        """Merge two ImageData instances."""
+        new_image = ImageData()
+        new_image.images = self.images + other.images
+        return new_image
+
+    @staticmethod
+    def _is_url(path: str) -> bool:
+        """Check if a string is a URL (http/https) or data URL."""
+        return path.startswith(('http://', 'https://', 'data:'))
+
+    @staticmethod
+    def _is_local_path(path: str) -> bool:
+        """Check if a string is a local file path."""
+        return os.path.exists(path) and os.path.isfile(path)
+
+    def get_processed_images(self) -> List[str]:
+        """Get all images as URLs (converting local paths to base64 data URLs)."""
+        processed = []
+        for image in self.images:
+            if self._is_url(image):
+                # Already a URL or data URL, use as-is
+                processed.append(image)
+            elif self._is_local_path(image):
+                # Local file, convert to base64 data URL
+                try:
+                    data_url = encode_image_to_base64(image)
+                    processed.append(data_url)
+                except Exception as e:
+                    print(f"Warning: Failed to process local image {image}: {e}")
+                    # Skip this image if it can't be processed
+            else:
+                print(f"Warning: Unrecognized image format: {image}")
+        return processed
+
 # NOTE: This is separated because more features could be added to this like tool use
 def format_prompt(
     prompt: str,
@@ -86,15 +132,19 @@ def merge_contiguous_messages(
 
         content = message.get("content")
         audio_data = message.get("audio_data")
+        image_data = message.get("image_data")
 
-        if content is None and audio_data is None:
-            raise ValueError("Message must have either 'content' or 'audio_data'")
+        if content is None and audio_data is None and image_data is None:
+            raise ValueError("Message must have either 'content', 'audio_data', or 'image_data'")
 
         if content is not None and not isinstance(content, str):
             raise ValueError("Message content must be a string")
 
         if audio_data is not None and not isinstance(audio_data, AudioData):
             raise ValueError("Message audio_data must be an AudioData instance")
+
+        if image_data is not None and not isinstance(image_data, ImageData):
+            raise ValueError("Message image_data must be an ImageData instance")
 
         # If the current message is a "system" but it is not at the beginning, then make it a user
         if role == "system":
@@ -103,17 +153,19 @@ def merge_contiguous_messages(
         elif not system_ended:
             system_ended = True
 
-        # NOTE (design choice): It won't merge audio and text nodes
+        # NOTE (design choice): It won't merge audio/image and text nodes
         if (role == merge_contiguous or merge_contiguous == "all") and \
             len(result) > 0 and previous_role == role:
             if (content is not None) and (result[-1]["content"] is not None):
                 result[-1]["content"] += "\n" + content
             elif (result[-1]["audio_data"] is not None) and (audio_data is not None):
                 result[-1]["audio_data"] = result[-1]["audio_data"].merge(audio_data)
+            elif (result[-1]["image_data"] is not None) and (image_data is not None):
+                result[-1]["image_data"] = result[-1]["image_data"].merge(image_data)
             else:
-                result.append({"role": role, "content": content, "audio_data": audio_data})
+                result.append({"role": role, "content": content, "audio_data": audio_data, "image_data": image_data})
         else:
-            result.append({"role": role, "content": content, "audio_data": audio_data})
+            result.append({"role": role, "content": content, "audio_data": audio_data, "image_data": image_data})
 
         previous_role = role
 
@@ -397,6 +449,45 @@ def base64_to_wav(base64_data: str, output_folder: Optional[str] = None, **kwarg
     )
 
     return result["file_path"]
+
+def encode_image_to_base64(image_path: str, mime_type: Optional[str] = None) -> str:
+    """Encode an image file to base64 data URL format."""
+    if not os.path.exists(image_path):
+        raise FileNotFoundError(f"Image file not found: {image_path}")
+    
+    # Auto-detect MIME type if not provided
+    if mime_type is None:
+        ext = os.path.splitext(image_path)[1].lower()
+        mime_map = {
+            '.jpg': 'image/jpeg',
+            '.jpeg': 'image/jpeg', 
+            '.png': 'image/png',
+            '.gif': 'image/gif',
+            '.webp': 'image/webp'
+        }
+        mime_type = mime_map.get(ext, 'image/jpeg')
+    
+    try:
+        with open(image_path, "rb") as image_file:
+            base64_data = base64.b64encode(image_file.read()).decode('utf-8')
+            return f"data:{mime_type};base64,{base64_data}"
+    except Exception as e:
+        raise ValueError(f"Failed to encode image {image_path}: {str(e)}")
+
+def process_images_for_completion(image_data: ImageData) -> List[Dict[str, Any]]:
+    """Process ImageData into format suitable for multimodal completion."""
+    image_contents = []
+    
+    # Get all processed images (auto-converts local paths to base64)
+    processed_images = image_data.get_processed_images()
+    
+    for image_url in processed_images:
+        image_contents.append({
+            "type": "image_url", 
+            "image_url": {"url": image_url}
+        })
+    
+    return image_contents
 
 def validate_json_response(response_json: Dict[str, Any]) -> str:
     """Validate and extract the content from a JSON response."""

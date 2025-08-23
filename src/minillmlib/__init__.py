@@ -15,7 +15,8 @@ from .utils.message_utils import (
     AudioData,
     process_audio_for_completion,
     base64_to_wav,
-    base64_to_temp_audio_file
+    base64_to_temp_audio_file,
+    ImageData
 )
 
 from .models.model_zoo import (
@@ -43,6 +44,7 @@ __all__ = [
     'openai_audio',
     'openrouter',
     'AudioData',
+    'ImageData',
     'process_audio_for_completion',
     'base64_to_wav',
     'base64_to_temp_audio_file',
