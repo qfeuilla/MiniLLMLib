@@ -1,17 +1,174 @@
-# Quickstart
+# Usage Guide
 
-Get started with MiniLLMLib in just a few lines:
+MiniLLMLib is designed for real-world applications. Here's how to use it effectively:
+
+## Basic Setup
+
+### Provider Options
+
+```python
+import minillmlib as mll
+import os
+
+# OpenAI (direct)
+gi_openai = mll.GeneratorInfo(
+    model="gpt-4o",
+    _format="openai",
+    api_key=os.getenv("OPENAI_API_KEY")
+)
+
+# Anthropic Claude (direct)
+gi_anthropic = mll.GeneratorInfo(
+    model="claude-3.5-sonnet-20241022",
+    _format="anthropic",
+    api_key=os.getenv("ANTHROPIC_API_KEY")
+)
+
+# OpenRouter (100+ models)
+gi_openrouter = mll.GeneratorInfo(
+    model="anthropic/claude-3.5-sonnet",
+    _format="url",
+    api_url="https://openrouter.ai/api/v1/chat/completions",
+    api_key=os.getenv("OPENROUTER_API_KEY")
+)
+
+# Use any provider the same way
+chat = mll.ChatNode(content="What is machine learning?", role="user")
+response = chat.complete_one(gi_openai)  # or any other gi
+print(response.content)
+```
+
+## Working with JSON Prompts
+
+```python
+# Load a prompt template from JSON file
+prompt = mll.ChatNode.from_thread("my_prompt.json")
+
+# Fill in template variables
+prompt.update_format_kwargs(
+    user_request="Explain quantum computing",
+    context="for a general audience"
+)
+
+# Complete with any provider
+result = prompt.complete_one(gi_openai)
+print(result.content)
+```
+
+## Error Handling and Retries
+
+```python
+# Robust completion with error handling
+try:
+    result = chat.complete_one(
+        mll.NodeCompletionParameters(
+            gi=gi,
+            retry=3,
+            exp_back_off=True,
+            crash_on_empty_response=True
+        )
+    )
+    print(result.content)
+except Exception as e:
+    print(f"Completion failed: {e}")
+```
+
+## Async Operations
+
+```python
+# Async completion for better performance
+async def get_response():
+    result = await chat.complete_async(gi)
+    return result.content
+
+# Run async function
+import asyncio
+response = asyncio.run(get_response())
+```
+
+## Multimodal Usage
+
+### Image Analysis (URL Format Only)
+
+```python
+import minillmlib as mll
+import os
+
+def analyze_document_image(image_url: str):
+    """Analyze a document image and extract key information."""
+    
+    # Create image analysis node (only URLs supported currently)
+    node = mll.ChatNode(
+        content="Analyze this document image. Extract key information and summarize the main points. Be concise but thorough.",
+        image_data=mll.ImageData(images=[image_url])
+    )
+    
+    # Use vision-capable model (URL format providers only)
+    gi = mll.GeneratorInfo(
+        model="anthropic/claude-3.5-sonnet",
+        _format="url",
+        api_url="https://openrouter.ai/api/v1/chat/completions",
+        api_key=os.getenv("OPENROUTER_API_KEY"),
+        completion_parameters=mll.GeneratorCompletionParameters(
+            temperature=0.3,  # Lower temperature for factual analysis
+            max_tokens=1024
+        )
+    )
+    
+    # Complete with error handling
+    try:
+        result = node.complete_one(mll.NodeCompletionParameters(
+            gi=gi,
+            retry=2,
+            crash_on_empty_response=True
+        ))
+        return result.content if result else None
+    except Exception as e:
+        print(f"Analysis failed: {e}")
+        return None
+
+# Usage with image URLs only
+analysis = analyze_document_image("https://example.com/chart.png")
+print(analysis)
+```
+
+### Audio Processing
 
 ```python
 import minillmlib as mll
 
-gi = mll.GeneratorInfo(model="gpt-4", _format="openai", api_key="sk-...")
-chat = mll.ChatNode(content="Hello!", role="user")
-response = chat.complete_one(mll.NodeCompletionParameters(gi=gi))
-print(response.content)
-```
+def transcribe_and_summarize(audio_files: list[str]):
+    """Process multiple audio files and create a summary."""
+    
+    # Process audio files with chunking
+    processed = mll.process_audio_for_completion(
+        file_paths=audio_files,
+        target_sample_rate=24000,
+        enable_chunking=True,
+        max_chunk_size=10 * 1024 * 1024  # 10MB chunks
+    )
+    
+    # Create audio data container
+    audio_data = mll.AudioData(
+        audio_raw=processed["chunks"][0] if processed["chunks"] else ""
+    )
+    
+    # Create transcription node
+    node = mll.ChatNode(
+        content="Please transcribe this audio and provide a brief summary of the key points discussed.",
+        audio_data=audio_data
+    )
+    
+    # Use audio-capable model
+    gi = mll.openai_audio["gpt-4o-audio-preview"]
+    
+    result = node.complete_one(gi)
+    return result.content
 
-> **Tip:** For most users, this is all you need. See below for details and advanced usage.
+# Usage
+summary = transcribe_and_summarize(["meeting1.mp3", "meeting2.wav"])
+print(summary)
+```
 
 ---
 
@@ -469,4 +626,4 @@ params = mll.GeneratorCompletionParameters(
 ## Next Steps
 - [Provider Matrix](providers.md)
 - [Configuration](configuration.md)
-- [Frontend/CLI](frontend.md)
+- [Extending MiniLLMLib](extending.md)
