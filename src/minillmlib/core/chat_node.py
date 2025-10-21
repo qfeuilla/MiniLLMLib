@@ -29,6 +29,7 @@ from ..utils.message_utils import (AudioData, ImageData, NodeCompletionParameter
                                    hf_process_messages,
                                    merge_contiguous_messages,
                                    process_audio_for_completion,
+                                   process_audio_input_for_completion,
                                    process_images_for_completion,
                                    validate_json_response)
 
@@ -83,21 +84,24 @@ class ChatNode:
         Args:
             content: Optional textual content of the message
             role: Role of the message sender (user/assistant/system/base)
-            audio_data: Optional audio data
-            image_data: Optional image data
+            audio_data: Optional audio data (can be combined with content for input messages)
+            image_data: Optional image data (can be combined with content)
             format_kwargs: Optional formatting arguments for the content
         """
-        # NOTE (design choice): For now audio/image and content will be stored in separate nodes
-        # Allow content + image_data together for multimodal messages
+        # NOTE (design choice): Allow multimodal combinations for input messages
+        # - content + image_data: supported for all roles
+        # - audio_data: supported for user/system (input), but not assistant (output uses different format)
         data_count = sum(x is not None for x in [content, audio_data, image_data])
         if data_count == 0:
             raise ValueError(
                 "At least one of content, audio_data, or image_data must be provided"
             )
-        if audio_data is not None and (content is not None or image_data is not None):
+        
+        # Audio output (assistant) uses a different format and should be in separate nodes
+        if audio_data is not None and role == "assistant" and (content is not None or image_data is not None):
             raise ValueError(
-                "audio_data cannot be combined with content or image_data, "
-                "audio must be sent in separate nodes"
+                "For assistant role, audio_data cannot be combined with content or image_data. "
+                "Audio output must be in separate nodes."
             )
 
         if role not in [
@@ -245,8 +249,11 @@ class ChatNode:
         if gi._format in ["openai", "anthropic", "url", "mistralai", "hf"]:
             new_messages = []
             for message in messages:
-                # Handle multimodal content (text + images) for OpenAI/OpenRouter
-                if gi._format in ["openai", "url"] and message["image_data"] is not None:
+                # Handle multimodal content (text + images + audio input) for OpenAI/OpenRouter
+                if gi._format in ["openai", "url"] and (
+                    message["image_data"] is not None or 
+                    (message["audio_data"] is not None and message["role"] != "assistant")
+                ):
                     # Create content array for multimodal messages
                     content_array = []
                     
@@ -258,8 +265,14 @@ class ChatNode:
                         })
                     
                     # Add image content
-                    image_contents = process_images_for_completion(message["image_data"])
-                    content_array.extend(image_contents)
+                    if message["image_data"] is not None:
+                        image_contents = process_images_for_completion(message["image_data"])
+                        content_array.extend(image_contents)
+                    
+                    # Add audio input content (for user/system messages, not assistant)
+                    if message["audio_data"] is not None and message["role"] != "assistant":
+                        audio_contents = process_audio_input_for_completion(message["audio_data"])
+                        content_array.extend(audio_contents)
                     
                     new_messages.append({
                         "role": message["role"], 

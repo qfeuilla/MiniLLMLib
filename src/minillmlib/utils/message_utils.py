@@ -489,6 +489,55 @@ def process_images_for_completion(image_data: ImageData) -> List[Dict[str, Any]]
     
     return image_contents
 
+def process_audio_input_for_completion(audio_data: AudioData) -> List[Dict[str, Any]]:
+    """
+    Process AudioData into format suitable for audio input in multimodal completion.
+    Compatible with OpenRouter's audio input format.
+    
+    Args:
+        audio_data: AudioData instance containing audio files
+        
+    Returns:
+        List of audio content objects in OpenRouter format
+    """
+    audio_contents = []
+    
+    # Process audio files
+    for audio_path in audio_data.audio_paths:
+        if not os.path.exists(audio_path):
+            raise FileNotFoundError(f"Audio file not found: {audio_path}")
+        
+        # Detect format from file extension
+        file_ext = os.path.splitext(audio_path)[1].lower()
+        audio_format = None
+        
+        if file_ext in ['.wav', '.wave']:
+            audio_format = 'wav'
+        elif file_ext in ['.mp3']:
+            audio_format = 'mp3'
+        else:
+            # Default to wav for unknown formats, but warn
+            audio_format = 'wav'
+            print(f"Warning: Unknown audio format '{file_ext}', defaulting to 'wav'")
+        
+        # Read and encode the audio file
+        try:
+            with open(audio_path, 'rb') as audio_file:
+                audio_bytes = audio_file.read()
+                base64_audio = base64.b64encode(audio_bytes).decode('utf-8')
+            
+            audio_contents.append({
+                "type": "input_audio",
+                "input_audio": {
+                    "data": base64_audio,
+                    "format": audio_format
+                }
+            })
+        except Exception as e:
+            raise ValueError(f"Failed to process audio file {audio_path}: {str(e)}")
+    
+    return audio_contents
+
 def validate_json_response(response_json: Dict[str, Any]) -> str:
     """Validate and extract the content from a JSON response."""
     if "choices" not in response_json:

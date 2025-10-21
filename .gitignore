@@ -43,3 +43,5 @@ Thumbs.db
 .env
 audio/*
 test_save_audio.json
+data/test.jpg
+data/test.mp3

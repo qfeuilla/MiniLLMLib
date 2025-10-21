@@ -67,7 +67,10 @@ print(response.content)
   - OpenAI, Anthropic, Mistral, HuggingFace (local), custom URL (e.g. OpenRouter)
 - Thread (linear) and loom (tree/branching) conversation modes
 - Synchronous & asynchronous API
-- Audio completions (OpenAI audio models, beta)
+- **Multimodal support:**
+  - Audio input (WAV/MP3) compatible with OpenRouter
+  - Image input (URLs, local paths, base64)
+  - Audio output (OpenAI audio models, beta)
 - Flexible parameter/config management via `GeneratorInfo` and `GeneratorCompletionParameters`
 - Save/load conversation trees
 - Extensible: add new models/providers easily

@@ -14,6 +14,7 @@ Production-ready Python library for sophisticated LLM workflows and conversation
 - 💰 **Cost Tracking**: Built-in usage monitoring and cost management
 - ⚡ **Production Ready**: Comprehensive error handling, retries, async support
 - 🎯 **Advanced Completion**: JSON parsing, validation, structured outputs
+- 🎤 **Multimodal Support**: Audio input (WAV/MP3) and image processing
 
 ## Real-World Use Cases
 - Multi-agent conversation systems

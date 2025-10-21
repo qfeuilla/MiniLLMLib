@@ -132,43 +132,174 @@ analysis = analyze_document_image("https://example.com/chart.png")
 print(analysis)
 ```
 
-### Audio Processing
+### Audio Input (OpenRouter Compatible)
+
+MiniLLMLib supports sending audio files as input to models that support audio processing (e.g., Whisper for transcription, or multimodal models). This is compatible with OpenRouter's audio input format.
+
+**Supported Audio Formats:**
+- WAV (`.wav`, `.wave`)
+- MP3 (`.mp3`)
+
+#### Basic Audio Transcription
 
 ```python
 import minillmlib as mll
+import os
 
-def transcribe_and_summarize(audio_files: list[str]):
-    """Process multiple audio files and create a summary."""
+def transcribe_audio(audio_path: str):
+    """Transcribe an audio file using OpenRouter."""
     
-    # Process audio files with chunking
-    processed = mll.process_audio_for_completion(
-        file_paths=audio_files,
-        target_sample_rate=24000,
-        enable_chunking=True,
-        max_chunk_size=10 * 1024 * 1024  # 10MB chunks
-    )
+    # Create AudioData with your audio file
+    audio_data = mll.AudioData(audio_paths=[audio_path])
     
-    # Create audio data container
-    audio_data = mll.AudioData(
-        audio_raw=processed["chunks"][0] if processed["chunks"] else ""
-    )
-    
-    # Create transcription node
+    # Create a ChatNode with audio input
     node = mll.ChatNode(
-        content="Please transcribe this audio and provide a brief summary of the key points discussed.",
+        content="Please transcribe this audio file.",
+        role="user",
         audio_data=audio_data
     )
     
-    # Use audio-capable model
-    gi = mll.openai_audio["gpt-4o-audio-preview"]
+    # Use OpenRouter with Whisper model
+    gi = mll.GeneratorInfo(
+        model="google/gemini-2.0-flash-lite-001",
+        _format="url",
+        api_url="https://openrouter.ai/api/v1/chat/completions",
+        api_key=os.getenv("OPENROUTER_API_KEY")
+    )
     
     result = node.complete_one(gi)
     return result.content
 
 # Usage
-summary = transcribe_and_summarize(["meeting1.mp3", "meeting2.wav"])
-print(summary)
+transcription = transcribe_audio("meeting.wav")
+print(transcription)
 ```
+
+#### Audio-Only Input (No Text Prompt)
+
+```python
+# Send audio without text prompt
+audio_data = mll.AudioData(audio_paths=["audio.wav"])
+node = mll.ChatNode(role="user", audio_data=audio_data)
+
+gi = mll.GeneratorInfo(
+    model="google/gemini-2.0-flash-lite-001",
+    _format="url",
+    api_url="https://openrouter.ai/api/v1/chat/completions",
+    api_key=os.getenv("OPENROUTER_API_KEY")
+)
+
+result = node.complete_one(gi)
+print(result.content)
+```
+
+#### Multiple Audio Files
+
+```python
+# Send multiple audio files in one message
+audio_data = mll.AudioData(audio_paths=[
+    "part1.wav",
+    "part2.mp3",
+    "part3.wav"
+])
+
+node = mll.ChatNode(
+    content="Transcribe all these audio files:",
+    role="user",
+    audio_data=audio_data
+)
+
+result = node.complete_one(gi)
+print(result.content)
+```
+
+#### Audio + Text in Same Message
+
+```python
+# Combine audio with specific instructions
+audio_data = mll.AudioData(audio_paths=["interview.wav"])
+
+node = mll.ChatNode(
+    content="Transcribe this interview and extract the key insights. Focus on technical details.",
+    role="user",
+    audio_data=audio_data
+)
+
+result = node.complete_one(gi)
+print(result.content)
+```
+
+#### Audio + Images (Multimodal)
+
+```python
+# Combine audio and images in the same message
+audio_data = mll.AudioData(audio_paths=["presentation.wav"])
+image_data = mll.ImageData(images=[
+    "https://example.com/slide1.png",
+    "https://example.com/slide2.png"
+])
+
+node = mll.ChatNode(
+    content="Analyze this presentation. The audio contains the speaker's narration and the images show the slides.",
+    role="user",
+    audio_data=audio_data,
+    image_data=image_data
+)
+
+gi = mll.GeneratorInfo(
+    model="google/gemini-2.0-flash-lite-001",  # Use a multimodal model
+    _format="url",
+    api_url="https://openrouter.ai/api/v1/chat/completions",
+    api_key=os.getenv("OPENROUTER_API_KEY")
+)
+
+result = node.complete_one(gi)
+print(result.content)
+```
+
+#### Async Audio Processing
+
+```python
+import asyncio
+
+async def transcribe_multiple_files(audio_files: list[str]):
+    """Transcribe multiple audio files concurrently."""
+    
+    gi = mll.GeneratorInfo(
+        model="google/gemini-2.0-flash-lite-001",
+        _format="url",
+        api_url="https://openrouter.ai/api/v1/chat/completions",
+        api_key=os.getenv("OPENROUTER_API_KEY")
+    )
+    
+    # Create tasks for each audio file
+    tasks = []
+    for audio_file in audio_files:
+        audio_data = mll.AudioData(audio_paths=[audio_file])
+        node = mll.ChatNode(
+            content="Transcribe this audio:",
+            role="user",
+            audio_data=audio_data
+        )
+        tasks.append(node.complete_one_async(gi))
+    
+    # Run all transcriptions concurrently
+    results = await asyncio.gather(*tasks)
+    return [r.content for r in results]
+
+# Usage
+audio_files = ["file1.wav", "file2.mp3", "file3.wav"]
+transcriptions = asyncio.run(transcribe_multiple_files(audio_files))
+for i, transcription in enumerate(transcriptions):
+    print(f"File {i+1}: {transcription}")
+```
+
+**Important Notes:**
+- Audio input is supported for `_format="url"` (OpenRouter) and `_format="openai"` (OpenAI)
+- Audio files are automatically base64-encoded and format-detected
+- For user/system roles, audio can be combined with text and images
+- For assistant roles, audio output uses a different format (see Audio Output section)
+- Check OpenRouter's model list for audio-capable models: https://openrouter.ai/models?input_modalities=audio
 
 ---
 
