@@ -944,9 +944,11 @@ class ChatNode:
         system_prompt = system_prompt[:-1]
 
         payload = get_payload(gi, messages)
+        if len(system_prompt) > 0:
+            payload["system"] = system_prompt
 
         response: Message = api.messages.create(
-            system=system_prompt if system_prompt else None, **payload
+            **payload
         )
 
         return response.content[0].text
@@ -965,9 +967,11 @@ class ChatNode:
         system_prompt = system_prompt[:-1]
 
         payload = get_payload(gi, messages)
+        if len(system_prompt) > 0:
+            payload["system"] = system_prompt
 
         response: Message = await api.messages.create(
-            system=system_prompt if system_prompt else None, **payload
+            **payload
         )
 
         return response.content[0].text
