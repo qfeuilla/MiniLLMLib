@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from src.minillmlib.utils.message_utils import ImageData, process_images_for_completion
+from src.minillmlib.utils.message_utils import ImageData, process_images_for_completion, _is_url, _is_local_path
 
 
 class TestImageData(unittest.TestCase):
@@ -46,26 +46,26 @@ class TestImageData(unittest.TestCase):
     def test_is_url_detection(self):
         """Test URL detection."""
         # Test HTTP URLs
-        self.assertTrue(ImageData._is_url("http://example.com/image.jpg"))
-        self.assertTrue(ImageData._is_url("https://example.com/image.jpg"))
+        self.assertTrue(_is_url("http://example.com/image.jpg"))
+        self.assertTrue(_is_url("https://example.com/image.jpg"))
         
         # Test data URLs
-        self.assertTrue(ImageData._is_url(self.test_data_url))
+        self.assertTrue(_is_url(self.test_data_url))
         
         # Test non-URLs
-        self.assertFalse(ImageData._is_url("/path/to/image.jpg"))
-        self.assertFalse(ImageData._is_url("image.jpg"))
+        self.assertFalse(_is_url("/path/to/image.jpg"))
+        self.assertFalse(_is_url("image.jpg"))
         
     def test_is_local_path_detection(self):
         """Test local path detection."""
         # Test existing file
-        self.assertTrue(ImageData._is_local_path(self.test_image_path))
+        self.assertTrue(_is_local_path(self.test_image_path))
         
         # Test non-existing file
-        self.assertFalse(ImageData._is_local_path("/nonexistent/path.jpg"))
+        self.assertFalse(_is_local_path("/nonexistent/path.jpg"))
         
         # Test URL (should not be detected as local path)
-        self.assertFalse(ImageData._is_local_path(self.test_url))
+        self.assertFalse(_is_local_path(self.test_url))
         
     def test_get_processed_images_with_url(self):
         """Test processing images with URLs."""
