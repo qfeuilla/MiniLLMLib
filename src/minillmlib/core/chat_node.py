@@ -24,13 +24,14 @@ from ..models.generator_info import (HUGGINGFACE_ACTIVATED, GeneratorCompletionP
                                      pretty_messages, torch)
 from ..utils.json_utils import extract_json_from_completion, to_dict
 from ..utils.logging_utils import get_logger
-from ..utils.message_utils import (AudioData, ImageData, NodeCompletionParameters,
+from ..utils.message_utils import (AudioData, ImageData, VideoData, NodeCompletionParameters,
                                    base64_to_wav, format_prompt, get_payload,
                                    hf_process_messages,
                                    merge_contiguous_messages,
                                    process_audio_for_completion,
                                    process_audio_input_for_completion,
                                    process_images_for_completion,
+                                   process_videos_for_completion,
                                    validate_json_response)
 
 warnings.filterwarnings("ignore", message=".*verification is strongly advised.*")
@@ -77,6 +78,7 @@ class ChatNode:
         role: str = "user",
         audio_data: Optional[AudioData] = None,
         image_data: Optional[ImageData] = None,
+        video_data: Optional[VideoData] = None,
         format_kwargs: Optional[Dict[str, Any]] = None,
     ):
         """Initialize a ChatNode.
@@ -86,21 +88,22 @@ class ChatNode:
             role: Role of the message sender (user/assistant/system/base)
             audio_data: Optional audio data (can be combined with content for input messages)
             image_data: Optional image data (can be combined with content)
+            video_data: Optional video data (can be combined with content)
             format_kwargs: Optional formatting arguments for the content
         """
         # NOTE (design choice): Allow multimodal combinations for input messages
-        # - content + image_data: supported for all roles
+        # - content + image_data + video_data: supported for all roles
         # - audio_data: supported for user/system (input), but not assistant (output uses different format)
-        data_count = sum(x is not None for x in [content, audio_data, image_data])
+        data_count = sum(x is not None for x in [content, audio_data, image_data, video_data])
         if data_count == 0:
             raise ValueError(
-                "At least one of content, audio_data, or image_data must be provided"
+                "At least one of content, audio_data, image_data, or video_data must be provided"
             )
         
         # Audio output (assistant) uses a different format and should be in separate nodes
-        if audio_data is not None and role == "assistant" and (content is not None or image_data is not None):
+        if audio_data is not None and role == "assistant" and (content is not None or image_data is not None or video_data is not None):
             raise ValueError(
-                "For assistant role, audio_data cannot be combined with content or image_data. "
+                "For assistant role, audio_data cannot be combined with content, image_data, or video_data. "
                 "Audio output must be in separate nodes."
             )
 
@@ -129,6 +132,7 @@ class ChatNode:
 
         self.audio_data: Optional[AudioData] = audio_data
         self.image_data: Optional[ImageData] = image_data
+        self.video_data: Optional[VideoData] = video_data
 
     def is_root(self) -> bool:
         """Check if this node is the root of the tree."""
@@ -227,6 +231,7 @@ class ChatNode:
                     "content": content,
                     "audio_data": current.audio_data,
                     "image_data": current.image_data,
+                    "video_data": current.video_data,
                 }
             )
             current = current._parent
@@ -249,9 +254,10 @@ class ChatNode:
         if gi._format in ["openai", "anthropic", "url", "mistralai", "hf"]:
             new_messages = []
             for message in messages:
-                # Handle multimodal content (text + images + audio input) for OpenAI/OpenRouter
+                # Handle multimodal content (text + images + video + audio input) for OpenAI/OpenRouter
                 if gi._format in ["openai", "url"] and (
                     message["image_data"] is not None or 
+                    message["video_data"] is not None or
                     (message["audio_data"] is not None and message["role"] != "assistant")
                 ):
                     # Create content array for multimodal messages
@@ -268,6 +274,11 @@ class ChatNode:
                     if message["image_data"] is not None:
                         image_contents = process_images_for_completion(message["image_data"])
                         content_array.extend(image_contents)
+                    
+                    # Add video content
+                    if message["video_data"] is not None:
+                        video_contents = process_videos_for_completion(message["video_data"])
+                        content_array.extend(video_contents)
                     
                     # Add audio input content (for user/system messages, not assistant)
                     if message["audio_data"] is not None and message["role"] != "assistant":
@@ -309,6 +320,12 @@ class ChatNode:
                         image_count = len(message["image_data"].images)
                         if image_count > 0:
                             content += f"\n*The {message['role']} provided {image_count} image(s), but this model format doesn't support images*"
+                    elif message["video_data"] is not None:
+                        # For non-multimodal formats, describe videos as text
+                        content = message["content"] or ""
+                        video_count = len(message["video_data"].videos)
+                        if video_count > 0:
+                            content += f"\n*The {message['role']} provided {video_count} video(s), but this model format doesn't support videos*"
                     else:
                         content = message["content"]
 
@@ -466,6 +483,13 @@ class ChatNode:
                                 "images": node.image_data.images,
                             }
                             if node.image_data is not None
+                            else None
+                        ),
+                        "video_data": (
+                            {
+                                "videos": node.video_data.videos,
+                            }
+                            if node.video_data is not None
                             else None
                         ),
                     }
@@ -1417,6 +1441,13 @@ class ChatNode:
                         images=prompt["image_data"]["images"]
                     )
                     if "image_data" in prompt and prompt["image_data"] is not None
+                    else None
+                ),
+                video_data=(
+                    VideoData(
+                        videos=prompt["video_data"]["videos"]
+                    )
+                    if "video_data" in prompt and prompt["video_data"] is not None
                     else None
                 ),
                 format_kwargs=data["required_kwargs"],

@@ -16,7 +16,8 @@ from .utils.message_utils import (
     process_audio_for_completion,
     base64_to_wav,
     base64_to_temp_audio_file,
-    ImageData
+    ImageData,
+    VideoData
 )
 
 from .models.model_zoo import (
@@ -45,6 +46,7 @@ __all__ = [
     'openrouter',
     'AudioData',
     'ImageData',
+    'VideoData',
     'process_audio_for_completion',
     'base64_to_wav',
     'base64_to_temp_audio_file',

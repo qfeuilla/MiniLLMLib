@@ -4,7 +4,7 @@ from .json_utils import extract_json_from_completion, to_dict
 from .message_utils import (AudioData, NodeCompletionParameters,
                             base64_to_temp_audio_file, base64_to_wav,
                             format_prompt, merge_contiguous_messages,
-                            process_audio_for_completion, ImageData)
+                            process_audio_for_completion, ImageData, VideoData)
 
 __all__ = [
     'to_dict',
@@ -14,6 +14,7 @@ __all__ = [
     'NodeCompletionParameters',
     'AudioData',
     'ImageData',
+    'VideoData',
     'process_audio_for_completion',
     'base64_to_wav',
     'base64_to_temp_audio_file'
