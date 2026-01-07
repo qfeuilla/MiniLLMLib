@@ -13,6 +13,7 @@ import warnings
 from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
+import json_repair
 import requests
 from anthropic import Anthropic, AsyncAnthropic
 from anthropic.types.message import Message
@@ -20,11 +21,13 @@ from mistralai import Mistral
 from openai import AsyncOpenAI, OpenAI
 from openai.types.chat import ChatCompletion
 
-from ..models.generator_info import (HUGGINGFACE_ACTIVATED, GeneratorCompletionParameters, GeneratorInfo,
-                                     pretty_messages, torch)
+from ..models.generator_info import (HUGGINGFACE_ACTIVATED,
+                                     GeneratorCompletionParameters,
+                                     GeneratorInfo, pretty_messages, torch)
 from ..utils.json_utils import extract_json_from_completion, to_dict
 from ..utils.logging_utils import get_logger
-from ..utils.message_utils import (AudioData, ImageData, VideoData, NodeCompletionParameters,
+from ..utils.message_utils import (AudioData, ImageData,
+                                   NodeCompletionParameters, VideoData,
                                    base64_to_wav, format_prompt, get_payload,
                                    hf_process_messages,
                                    merge_contiguous_messages,
@@ -1345,6 +1348,7 @@ class ChatNode:
     def from_thread(cls,
         path: str | List[str] | None = None,
         messages: List[Dict[str, str]] | None = None,
+        fix_json: bool = False,
     ) -> ChatNode:
         """Load a thread from a JSON file or multiple JSON files, or directly from messages.
 
@@ -1401,7 +1405,7 @@ class ChatNode:
             return parent
 
         # Single path logic
-        data = json.load(open(path, "r", encoding="utf-8"))
+        data = (json_repair if fix_json else json).load(open(path, "r", encoding="utf-8"))
         if "required_kwargs" not in data:
             data["required_kwargs"] = {}
 
