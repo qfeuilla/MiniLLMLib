@@ -91,6 +91,31 @@ class TestChatNode(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(thread[0]._parent)
         self.assertEqual(thread[-1].children, [])
 
+    async def test_collapse_thread_summary_malformed_json(self):
+        """Test collapse_thread handles malformed JSON from LLM gracefully."""
+        # Build a thread: root -> u1 -> a1 -> u2 -> a2 -> u3
+        root = ChatNode(content="system", role="system")
+        n1 = root.add_child(ChatNode(content="user1", role="user"))
+        n2 = n1.add_child(ChatNode(content="assistant1", role="assistant"))
+        n3 = n2.add_child(ChatNode(content="user2", role="user"))
+        n4 = n3.add_child(ChatNode(content="assistant2", role="assistant"))
+        n5 = n4.add_child(ChatNode(content="user3", role="user"))
+
+        gi = GeneratorInfo(model="test-model", _format="openai", api_key="test-key")
+        
+        # Test case 1: LLM returns a plain string (not JSON object)
+        plain_summary = "This is just a plain text summary without JSON structure."
+        with patch.object(ChatNode, "complete_async", new_callable=AsyncMock) as mock_complete_async:
+            mock_complete_async.return_value = ChatNode(content=f'"{plain_summary}"', role="assistant")
+            last, marker = await n5.collapse_thread(keep_last_n=2, keep_n=4, gi=gi)
+        self.assertIn(plain_summary, marker.content)
+        
+        # Test case 2: LLM returns invalid JSON
+        with patch.object(ChatNode, "complete_async", new_callable=AsyncMock) as mock_complete_async:
+            mock_complete_async.return_value = ChatNode(content="not valid json at all", role="assistant")
+            last, marker = await n5.collapse_thread(keep_last_n=2, keep_n=4, gi=gi)
+        self.assertIn("not valid json at all", marker.content)
+
     async def test_collapse_thread_edge_cases(self):
         """Test edge cases for collapse_thread."""
         # Helper to build a thread of given length

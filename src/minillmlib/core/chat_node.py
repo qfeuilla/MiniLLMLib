@@ -1306,7 +1306,20 @@ class ChatNode:
                         max_tokens=2048,
                     )
                 ))
-                summary_str = json.loads(summary_comp.content)["summary"]
+                # Handle cases where LLM returns malformed JSON
+                try:
+                    parsed = json.loads(summary_comp.content)
+                    if isinstance(parsed, dict) and "summary" in parsed:
+                        summary_str = parsed["summary"]
+                    elif isinstance(parsed, str):
+                        # LLM returned a JSON string instead of object
+                        summary_str = parsed
+                    else:
+                        # Fallback: use raw content
+                        summary_str = str(summary_comp.content)
+                except (json.JSONDecodeError, TypeError):
+                    # JSON parsing failed, use raw content
+                    summary_str = str(summary_comp.content)
 
                 truncate_marker_node = ChatNode(
                     content="""
