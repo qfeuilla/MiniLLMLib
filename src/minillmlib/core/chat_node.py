@@ -1295,9 +1295,9 @@ class ChatNode:
                 # Build the summarizer thread
                 summarizer = ChatNode(prompt_intro, role="system")
                 summarizer = summarizer.merge(original_thread)
-                summarizer = summarizer.add_child(ChatNode(prompt_outro, role="assistant"))
+                summarizer = summarizer.add_child(ChatNode(prompt_outro, role="user"))
                 summarizer = summarizer.merge(truncated_thread)
-                summarizer = summarizer.add_child(ChatNode(prompt_json, role="assistant"))
+                summarizer = summarizer.add_child(ChatNode(prompt_json, role="user"))
 
                 summary_comp = await summarizer.complete_async(NodeCompletionParameters(
                     gi=gi,
